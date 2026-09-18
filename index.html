@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV User &amp; Charging Station Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* ============================ DESIGN TOKENS ============================ */
+:root{
+  --bg:#080E1C;          /* page */
+  --panel:#101B33;       /* cards */
+  --panel-2:#16233F;     /* raised */
+  --line:#223252;        /* borders */
+  --ink:#E8EEFA;         /* primary text */
+  --ink-dim:#8CA0C4;     /* secondary text */
+  --ink-faint:#5C6F93;
+  --charge:#17E5A1;      /* energy / primary accent */
+  --volt:#4C9BFF;        /* revenue / secondary */
+  --peak:#FFB23F;        /* peak hour */
+  --grape:#A77BFF;       /* tertiary */
+  --rose:#FF5F87;        /* alert */
+  --r-lg:16px; --r-md:11px; --r-sm:7px;
+  --shadow:0 18px 40px -22px rgba(0,0,0,.85);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 620px at 78% -12%, rgba(23,229,161,.10), transparent 62%),
+    radial-gradient(900px 520px at 4% 4%, rgba(76,155,255,.10), transparent 60%),
+    var(--bg);
+  color:var(--ink);
+  font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+h1,h2,h3,h4,.num{font-family:"Space Grotesk",Inter,sans-serif;letter-spacing:-.015em}
+a{color:var(--charge)}
+::selection{background:rgba(23,229,161,.3)}
+:focus-visible{outline:2px solid var(--charge);outline-offset:2px;border-radius:4px}
+
+/* ============================ SHELL / NAV ============================ */
+.shell{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+.side{
+  background:linear-gradient(180deg,#0C1730,#0A1327);
+  border-right:1px solid var(--line);
+  padding:22px 16px;display:flex;flex-direction:column;gap:26px;
+  position:sticky;top:0;height:100vh;overflow:auto;
+}
+.brand{display:flex;gap:11px;align-items:flex-start}
+.bolt{
+  width:34px;height:34px;flex:none;border-radius:10px;
+  background:linear-gradient(140deg,var(--charge),#0FB88A);
+  display:grid;place-items:center;color:#04231A;font-size:18px;font-weight:700;
+}
+.brand b{display:block;font-family:"Space Grotesk";font-size:14.5px;line-height:1.25}
+.brand span{color:var(--ink-faint);font-size:11.5px}
+.nav{display:flex;flex-direction:column;gap:3px}
+.nav button{
+  all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:var(--r-md);color:var(--ink-dim);
+  font-size:13.5px;font-weight:500;transition:background .16s,color .16s;
+}
+.nav button:hover{background:rgba(255,255,255,.045);color:var(--ink)}
+.nav button[aria-selected="true"]{background:rgba(23,229,161,.12);color:var(--charge);box-shadow:inset 2px 0 0 var(--charge)}
+.nav .ic{width:17px;text-align:center;opacity:.9}
+.side-foot{margin-top:auto;font-size:11px;color:var(--ink-faint);line-height:1.6}
+.side-foot b{color:var(--ink-dim);font-weight:600}
+
+.main{padding:24px 28px 56px;min-width:0}
+.topbar{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+.topbar h1{margin:0;font-size:25px}
+.topbar p{margin:5px 0 0;color:var(--ink-dim);font-size:13px;max-width:70ch}
+.scope{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:9px 14px;font-size:12px;color:var(--ink-dim);white-space:nowrap;
+}
+.scope b{color:var(--charge);font-family:"Space Grotesk";font-size:14px}
+
+/* ============================ SLICERS ============================ */
+.slicers{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:14px 16px;margin-bottom:18px;box-shadow:var(--shadow);
+}
+.slicer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.slicer-head h3{margin:0;font-size:13px;color:var(--ink-dim);font-weight:600}
+.slicer-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:13px}
+.slicer label{display:block;font-size:11px;color:var(--ink-faint);margin-bottom:6px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{
+  all:unset;cursor:pointer;padding:4.5px 10px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--ink-dim);
+  font-size:11.5px;font-weight:500;transition:.15s;
+}
+.chip:hover{border-color:var(--charge);color:var(--ink)}
+.chip[aria-pressed="true"]{background:rgba(23,229,161,.16);border-color:var(--charge);color:var(--charge)}
+.btn{
+  all:unset;cursor:pointer;padding:7px 14px;border-radius:var(--r-sm);
+  background:var(--charge);color:#04231A;font-size:12.5px;font-weight:600;transition:.15s;
+}
+.btn:hover{filter:brightness(1.1)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink-dim)}
+.btn.ghost:hover{border-color:var(--charge);color:var(--charge)}
+
+/* ============================ KPI CARDS ============================ */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:13px;margin-bottom:18px}
+.kpi{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:15px 16px;position:relative;overflow:hidden;transition:transform .18s,border-color .18s;
+}
+.kpi:hover{transform:translateY(-2px);border-color:rgba(23,229,161,.45)}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--k,var(--charge))}
+.kpi .lab{font-size:11.5px;color:var(--ink-faint);font-weight:600;margin-bottom:7px}
+.kpi .val{font-family:"Space Grotesk";font-size:25px;font-weight:700;line-height:1.1}
+.kpi .sub{font-size:11px;color:var(--ink-dim);margin-top:5px}
+
+/* ============================ CARDS / CHARTS ============================ */
+.grid{display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:16px 17px;box-shadow:var(--shadow);min-width:0;
+}
+.card h3{margin:0 0 2px;font-size:14.5px}
+.card .cap{margin:0 0 13px;font-size:11.5px;color:var(--ink-faint)}
+.c12{grid-column:span 12}.c8{grid-column:span 8}.c6{grid-column:span 6}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c7{grid-column:span 7}.c3{grid-column:span 3}
+.chart-wrap{position:relative;height:270px}
+.chart-wrap.tall{height:330px}
+.chart-wrap.sm{height:215px}
+
+/* ============================ FORMS ============================ */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:13px}
+.field label{display:block;font-size:11.5px;color:var(--ink-faint);font-weight:600;margin-bottom:6px}
+select,input[type=number],input[type=text],input[type=search]{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
+  border-radius:var(--r-sm);padding:9px 11px;font-family:inherit;font-size:13px;
+}
+select:focus,input:focus{border-color:var(--charge);outline:none}
+input[type=range]{width:100%;accent-color:var(--charge)}
+.rangerow{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-dim);margin-top:4px}
+
+/* ============================ PREDICTION OUTPUT ============================ */
+.pred-head{text-align:center;padding:6px 0 14px}
+.pred-head .money{font-family:"Space Grotesk";font-size:50px;font-weight:700;color:var(--charge);line-height:1}
+.pred-head .rng{color:var(--ink-dim);font-size:12.5px;margin-top:8px}
+.meter{margin:18px 0 6px}
+.meter-track{height:12px;border-radius:999px;background:linear-gradient(90deg,#1E5E7A,#17E5A1,#FFB23F,#FF5F87);position:relative}
+.meter-mark{position:absolute;top:-6px;width:4px;height:24px;border-radius:3px;background:#fff;box-shadow:0 0 0 3px rgba(0,0,0,.45);transition:left .5s cubic-bezier(.3,1.2,.4,1)}
+.meter-scale{display:flex;justify-content:space-between;font-size:10.5px;color:var(--ink-faint);margin-top:8px}
+.band{display:inline-block;padding:5px 13px;border-radius:999px;font-size:12px;font-weight:600}
+.drivers{display:flex;flex-direction:column;gap:9px}
+.driver{display:grid;grid-template-columns:1fr 92px;gap:10px;align-items:center;font-size:12.5px}
+.driver .bar{height:9px;border-radius:5px;background:var(--panel-2);position:relative;overflow:hidden;margin-top:5px}
+.driver .fill{position:absolute;top:0;bottom:0;border-radius:5px}
+.driver .amt{text-align:right;font-family:"Space Grotesk";font-size:13px;font-weight:600}
+.pos{color:var(--peak)}.neg{color:var(--volt)}
+
+/* ============================ TABLE ============================ */
+.tbl-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.tbl-tools input[type=search]{max-width:260px}
+.tbl-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+thead th{
+  background:var(--panel-2);color:var(--ink-dim);text-align:left;padding:10px 12px;
+  font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;border-bottom:1px solid var(--line);
+}
+thead th:hover{color:var(--charge)}
+tbody td{padding:9px 12px;border-bottom:1px solid rgba(34,50,82,.6);color:var(--ink-dim)}
+tbody tr:hover td{background:rgba(23,229,161,.05);color:var(--ink)}
+.pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:12px;font-size:12.5px;color:var(--ink-dim)}
+.drop{
+  border:1.5px dashed var(--line);border-radius:var(--r-md);padding:18px;text-align:center;
+  color:var(--ink-dim);font-size:12.5px;transition:.18s;
+}
+.drop.over{border-color:var(--charge);background:rgba(23,229,161,.06)}
+
+/* ============================ MISC ============================ */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:13px}
+.metric{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-md);padding:14px}
+.metric .m-lab{font-size:11px;color:var(--ink-faint);font-weight:600}
+.metric .m-val{font-family:"Space Grotesk";font-size:23px;font-weight:700;margin-top:5px}
+.metric .m-note{font-size:10.5px;color:var(--ink-faint);margin-top:4px}
+.note{
+  border-left:3px solid var(--peak);background:rgba(255,178,63,.07);
+  padding:12px 15px;border-radius:0 var(--r-sm) var(--r-sm) 0;font-size:12.5px;color:var(--ink-dim);
+}
+.note b{color:var(--peak)}
+dl.spec{display:grid;grid-template-columns:auto 1fr;gap:9px 20px;font-size:13px;margin:0}
+dl.spec dt{color:var(--ink-faint);font-weight:600}
+dl.spec dd{margin:0;color:var(--ink)}
+.prose{max-width:74ch;color:var(--ink-dim);font-size:13.5px}
+.prose h4{color:var(--ink);margin:20px 0 7px;font-size:14px}
+.prose li{margin-bottom:5px}
+.panel-split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.view{display:none}.view.on{display:block}
+.toast{
+  position:fixed;right:20px;bottom:20px;background:var(--panel-2);border:1px solid var(--charge);
+  color:var(--ink);padding:12px 17px;border-radius:var(--r-md);font-size:13px;
+  box-shadow:var(--shadow);opacity:0;transform:translateY(12px);pointer-events:none;transition:.25s;z-index:60;
+}
+.toast.on{opacity:1;transform:none}
+.mobile-nav{display:none}
+
+@media (max-width:1080px){
+  .c8,.c7,.c6,.c5,.c4,.c3{grid-column:span 12}
+  .panel-split{grid-template-columns:1fr}
+}
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr}
+  .side{position:static;height:auto;flex-direction:row;align-items:center;gap:14px;overflow-x:auto;padding:14px}
+  .side .nav{flex-direction:row}
+  .side-foot{display:none}
+  .main{padding:18px 15px 44px}
+  .topbar h1{font-size:21px}
+  .pred-head .money{font-size:38px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="side">
+    <div class="brand">
+      <div class="bolt">&#9889;</div>
+      <div><b>EV Charging Analytics</b><span>Hyderabad network &middot; Q1 2026</span></div>
+    </div>
+    <nav class="nav" id="nav" role="tablist">
+      <button role="tab" data-view="dashboard" aria-selected="true"><span class="ic">&#9635;</span>Dashboard</button>
+      <button role="tab" data-view="prediction" aria-selected="false"><span class="ic">&#9678;</span>Cost prediction</button>
+      <button role="tab" data-view="model" aria-selected="false"><span class="ic">&#9650;</span>Model performance</button>
+      <button role="tab" data-view="explorer" aria-selected="false"><span class="ic">&#9776;</span>Data explorer</button>
+      <button role="tab" data-view="about" aria-selected="false"><span class="ic">&#9432;</span>About</button>
+    </nav>
+    <div class="side-foot">
+      <b id="foot-rows">300 sessions</b><br>6 stations &middot; 20 fields<br>Jan&ndash;Mar 2026<br><br>
+      Everything on this page is computed in your browser from the loaded data.
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="page-title">EV user and charging station analytics</h1>
+        <p id="page-sub">Session volume, energy throughput and revenue across the charging network.</p>
+      </div>
+      <div class="scope">Showing <b id="scope-n">300</b> of <span id="scope-total">300</span> sessions</div>
+    </div>
+
+    <!-- ============================ SLICERS ============================ -->
+    <section class="slicers" id="slicers">
+      <div class="slicer-head">
+        <h3>Filters</h3>
+        <button class="btn ghost" id="reset-filters">Clear all filters</button>
+      </div>
+      <div class="slicer-grid" id="slicer-grid"></div>
+    </section>
+
+    <!-- ============================ DASHBOARD ============================ -->
+    <section class="view on" id="view-dashboard">
+      <div class="kpis" id="kpis"></div>
+      <div class="grid">
+        <div class="card c7">
+          <h3>Sessions and revenue by station</h3>
+          <p class="cap">Which sites carry the load, and what they earn</p>
+          <div class="chart-wrap"><canvas id="ch-station"></canvas></div>
+        </div>
+        <div class="card c5">
+          <h3>Energy share by vehicle type</h3>
+          <p class="cap">Total kWh delivered</p>
+          <div class="chart-wrap"><canvas id="ch-vehicle"></canvas></div>
+        </div>
+        <div class="card c7">
+          <h3>Demand through the day</h3>
+          <p class="cap">Sessions per hour &mdash; peak window 17:00&ndash;21:00 shown in amber</p>
+          <div class="chart-wrap"><canvas id="ch-hour"></canvas></div>
+        </div>
+        <div class="card c5">
+          <h3>Revenue by month</h3>
+          <p class="cap">Charging revenue in INR</p>
+          <div class="chart-wrap"><canvas id="ch-month"></canvas></div>
+        </div>
+        <div class="card c4">
+          <h3>Trip purpose</h3>
+          <p class="cap">Sessions by why the user charged</p>
+          <div class="chart-wrap sm"><canvas id="ch-purpose"></canvas></div>
+        </div>
+        <div class="card c4">
+          <h3>Payment method</h3>
+          <p class="cap">Revenue collected by channel</p>
+          <div class="chart-wrap sm"><canvas id="ch-pay"></canvas></div>
+        </div>
+        <div class="card c4">
+          <h3>Who is charging</h3>
+          <p class="cap">Sessions by age band and gender</p>
+          <div class="chart-wrap sm"><canvas id="ch-age"></canvas></div>
+        </div>
+        <div class="card c7">
+          <h3>Duration against energy delivered</h3>
+          <p class="cap">Each point is one session, coloured by vehicle type</p>
+          <div class="chart-wrap"><canvas id="ch-scatter"></canvas></div>
+        </div>
+        <div class="card c5">
+          <h3>Session length mix</h3>
+          <p class="cap">Sessions by duration band</p>
+          <div class="chart-wrap"><canvas id="ch-dur"></canvas></div>
+        </div>
+        <div class="card c12">
+          <h3>Weekly rhythm</h3>
+          <p class="cap">Sessions and average cost by day of week</p>
+          <div class="chart-wrap sm"><canvas id="ch-dow"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ PREDICTION ============================ -->
+    <section class="view" id="view-prediction">
+      <div class="grid">
+        <div class="card c7">
+          <h3>Estimate the cost of a charging session</h3>
+          <p class="cap">Set the session details and the model returns an expected bill in INR</p>
+          <div class="form-grid" id="pred-form"></div>
+          <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn" id="btn-predict">Estimate cost</button>
+            <button class="btn ghost" id="btn-random">Load a random session</button>
+          </div>
+          <div class="note" style="margin-top:16px">
+            <b>Read this as a range.</b> The model explains part of what drives a bill; battery state
+            and charger power are not in the data, so treat the estimate as a planning figure rather than a quote.
+          </div>
+        </div>
+        <div class="card c5">
+          <h3>Estimated bill</h3>
+          <p class="cap">Point estimate with a typical error band</p>
+          <div class="pred-head">
+            <div class="money" id="pred-money">&#8377;&mdash;</div>
+            <div class="rng" id="pred-range">Set the inputs and select Estimate cost</div>
+            <div style="margin-top:12px"><span class="band" id="pred-band" style="background:rgba(140,160,196,.15);color:var(--ink-dim)">No estimate yet</span></div>
+          </div>
+          <div class="meter">
+            <div class="meter-track"><div class="meter-mark" id="pred-mark" style="left:0%"></div></div>
+            <div class="meter-scale"><span>Low spend</span><span>Typical</span><span>High</span><span>Top tier</span></div>
+          </div>
+          <div style="margin-top:14px;font-size:12px;color:var(--ink-dim)" id="pred-context"></div>
+        </div>
+        <div class="card c12">
+          <h3>What is driving this estimate</h3>
+          <p class="cap">Each bar is the rupee effect of one input, measured against an average session</p>
+          <div class="drivers" id="drivers"><p style="color:var(--ink-faint);font-size:12.5px;margin:0">Run an estimate to see the breakdown.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ MODEL PERFORMANCE ============================ -->
+    <section class="view" id="view-model">
+      <div class="grid">
+        <div class="card c12">
+          <h3>Ridge regression, trained in this browser</h3>
+          <p class="cap">80/20 split with a fixed shuffle seed, so the numbers below reproduce on every load</p>
+          <div class="metrics" id="metrics"></div>
+          <div class="note" style="margin-top:15px" id="model-note"></div>
+        </div>
+        <div class="card c6">
+          <h3>Predicted against actual</h3>
+          <p class="cap">Held-out sessions; the diagonal is a perfect estimate</p>
+          <div class="chart-wrap"><canvas id="ch-pva"></canvas></div>
+        </div>
+        <div class="card c6">
+          <h3>Residuals</h3>
+          <p class="cap">Actual minus predicted on held-out sessions, in INR</p>
+          <div class="chart-wrap"><canvas id="ch-resid"></canvas></div>
+        </div>
+        <div class="card c12">
+          <h3>Feature weights</h3>
+          <p class="cap">Standardised coefficients &mdash; length shows influence, direction shows whether the bill goes up or down</p>
+          <div class="chart-wrap tall"><canvas id="ch-coef"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ DATA EXPLORER ============================ -->
+    <section class="view" id="view-explorer">
+      <div class="grid">
+        <div class="card c12">
+          <h3>Session records</h3>
+          <p class="cap">Filters from the top of the page apply here too</p>
+          <div class="tbl-tools">
+            <input type="search" id="tbl-search" placeholder="Search any field">
+            <select id="tbl-size" style="width:auto"><option>15</option><option selected>25</option><option>50</option><option>100</option></select>
+            <span style="font-size:12.5px;color:var(--ink-dim)" id="tbl-count"></span>
+            <button class="btn ghost" id="btn-csv" style="margin-left:auto">Download filtered CSV</button>
+          </div>
+          <div class="tbl-scroll"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+          <div class="pager">
+            <button class="btn ghost" id="pg-prev">Previous</button>
+            <span id="pg-label"></span>
+            <button class="btn ghost" id="pg-next">Next</button>
+          </div>
+        </div>
+        <div class="card c12">
+          <h3>Load your own file</h3>
+          <p class="cap">Replaces the built-in data, refits the model and redraws every chart</p>
+          <div class="drop" id="drop">
+            Drop an .xlsx, .xls or .csv file here, or
+            <label style="color:var(--charge);cursor:pointer;text-decoration:underline">browse
+              <input type="file" id="file-in" accept=".xlsx,.xls,.csv" hidden>
+            </label>
+            <div style="margin-top:8px;font-size:11.5px;color:var(--ink-faint)">
+              Needs the columns: Charging_Cost_INR, Charging_Duration_Min, Vehicle_Type, Purpose, Charging_Station, Hour, User_Age
+            </div>
+          </div>
+          <div id="load-status" style="margin-top:12px;font-size:12.5px;color:var(--ink-dim)"></div>
+          <div style="margin-top:12px"><button class="btn ghost" id="btn-restore">Restore built-in dataset</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ ABOUT ============================ -->
+    <section class="view" id="view-about">
+      <div class="grid">
+        <div class="card c6">
+          <h3>The dataset</h3>
+          <p class="cap">Profiled live from whatever data is loaded</p>
+          <dl class="spec" id="profile"></dl>
+        </div>
+        <div class="card c6">
+          <h3>How the estimate is made</h3>
+          <div class="prose">
+            <p>The target is <b>Charging_Cost_INR</b>. It is a continuous rupee amount, so this is a
+            regression problem rather than a classification one.</p>
+            <h4>Columns deliberately left out</h4>
+            <p>Cost_per_kWh_INR multiplied by Energy_Consumed_kWh reproduces the bill almost exactly,
+            and Energy_per_Min_kWh is energy divided by duration. Feeding any of those three to the model
+            would leak the answer and produce a meaningless near-perfect score, so none of them are used
+            as inputs. The model works only from what is known before a session starts.</p>
+            <h4>The model</h4>
+            <p>Ridge regression fitted by normal equations. Categorical fields are one-hot encoded,
+            numeric fields are standardised on the training split, and two interaction terms let duration
+            pay off differently for cars than for two-wheelers. The penalty term keeps the one-hot
+            columns from destabilising the solve on 300 rows.</p>
+            <h4>Honest limits</h4>
+            <ul>
+              <li>300 rows over three months is small. The held-out scores move with the split, so read them as approximate.</li>
+              <li>Battery capacity, state of charge and charger power rating would explain most of the remaining error. None of them are in this data.</li>
+              <li>Every metric on the model page is calculated in your browser at load time. Nothing is typed in by hand.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card c12">
+          <h3>Findings worth acting on</h3>
+          <div class="prose" id="insights"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============================ JAVASCRIPT ============================ -->
+<script>
+/* --------------------------------------------------------------------
+   1. DATA
+   ------------------------------------------------------------------ */
+const BUILTIN = {"cols":["Session_ID","Date","Start_Time","Charging_Station","Vehicle_Type","Purpose","User_Age","User_Gender","Energy_Consumed_kWh","Charging_Duration_Min","Charging_Cost_INR","Payment_Method","Day_of_Week","Hour","Peak_Hour","Energy_per_Min_kWh","Cost_per_kWh_INR","User_Age_Group","Charging_Duration_Group","Session_Month"],"rows":[[1,"21-02-2026","20:00","Ameerpet Charge Point","Car","Office Commute",28,"Male",31.76,70,408.29,"Wallet","Saturday",20,"Yes",0.454,12.86,"26-35","Medium (46-90 min)","February"],[2,"22-01-2026","09:00","Ameerpet Charge Point","Car","Office Commute",38,"Male",42.97,99,517.49,"UPI","Thursday",9,"No",0.434,12.04,"36-50","Long (>90 min)","January"],[3,"18-02-2026","14:00","Hitech City EV","Scooter","Office Commute",20,"Female",3.89,76,57.15,"Card","Wednesday",14,"No",0.051,14.69,"18-25","Medium (46-90 min)","February"],[4,"04-01-2026","20:00","Ameerpet Charge Point","Bike","Office Commute",37,"Male",10.32,76,161.66,"Cash","Sunday",20,"Yes",0.136,15.66,"36-50","Medium (46-90 min)","January"],[5,"16-02-2026","11:00","Hitech City EV","Scooter","Office Commute",23,"Male",6.46,67,78.76,"Card","Monday",11,"No",0.096,12.19,"18-25","Medium (46-90 min)","February"],[6,"31-03-2026","13:00","LB Nagar EV Station","Scooter","Office Commute",38,"Male",20.61,45,349.74,"Card","Tuesday",13,"No",0.458,16.97,"36-50","Short (<=45 min)","March"],[7,"30-03-2026","12:00","Kukatpally Charge Hub","Bike","Office Commute",24,"Male",5.68,54,78.13,"Wallet","Monday",12,"No",0.105,13.76,"18-25","Medium (46-90 min)","March"],[8,"11-01-2026","11:00","Secunderabad Central","Car","Office Commute",45,"Female",38.08,100,532.5,"Cash","Sunday",11,"No",0.381,13.98,"36-50","Long (>90 min)","January"],[9,"23-01-2026","16:00","LB Nagar EV Station","Bike","Ride Sharing",18,"Male",14.23,97,243.32,"UPI","Friday",16,"No",0.147,17.1,"18-25","Long (>90 min)","January"],[10,"31-03-2026","12:00","Ameerpet Charge Point","Scooter","Office Commute",30,"Male",3.77,92,55.97,"UPI","Tuesday",12,"No",0.041,14.85,"26-35","Long (>90 min)","March"],[11,"04-01-2026","19:00","Secunderabad Central","Scooter","Office Commute",30,"Male",10.8,46,140.01,"Card","Sunday",19,"Yes",0.235,12.96,"26-35","Medium (46-90 min)","January"],[12,"11-02-2026","17:00","Hitech City EV","Bike","Office Commute",37,"Female",19.56,65,329.44,"Cash","Wednesday",17,"Yes",0.301,16.84,"36-50","Medium (46-90 min)","February"],[13,"30-03-2026","12:00","LB Nagar EV Station","Scooter","Office Commute",30,"Female",7.33,25,110.43,"UPI","Monday",12,"No",0.293,15.07,"26-35","Short (<=45 min)","March"],[14,"03-03-2026","11:00","Secunderabad Central","Scooter","Office Commute",49,"Male",9.41,55,116.64,"Card","Tuesday",11,"No",0.171,12.4,"36-50","Medium (46-90 min)","March"],[15,"21-02-2026","12:00","Kukatpally Charge Hub","Bike","Office Commute",34,"Male",16.53,98,239.17,"Wallet","Saturday",12,"No",0.169,14.47,"26-35","Long (>90 min)","February"],[16,"01-01-2026","12:00","LB Nagar EV Station","Scooter","Office Commute",21,"Male",12.3,52,165.47,"Card","Thursday",12,"No",0.237,13.45,"18-25","Medium (46-90 min)","January"],[17,"24-01-2026","14:00","Uppal EV Hub","Car","Office Commute",23,"Female",25.16,125,351.14,"Cash","Saturday",14,"No",0.201,13.96,"18-25","Long (>90 min)","January"],[18,"19-01-2026","16:00","Hitech City EV","Car","Business",35,"Female",23.51,105,385.76,"Card","Monday",16,"No",0.224,16.41,"26-35","Long (>90 min)","January"],[19,"23-01-2026","14:00","Ameerpet Charge Point","Bike","Business",19,"Other",7.34,97,112.7,"Cash","Friday",14,"No",0.076,15.35,"18-25","Long (>90 min)","January"],[20,"09-01-2026","12:00","Hitech City EV","Car","Ride Sharing",50,"Female",39.94,43,518.01,"Card","Friday",12,"No",0.929,12.97,"36-50","Short (<=45 min)","January"],[21,"25-03-2026","15:00","Uppal EV Hub","Scooter","Office Commute",35,"Male",20.86,58,374.83,"Cash","Wednesday",15,"No",0.36,17.97,"26-35","Medium (46-90 min)","March"],[22,"02-02-2026","07:00","Secunderabad Central","Bike","Delivery",50,"Male",6.4,63,101.2,"Card","Monday",7,"No",0.102,15.81,"36-50","Medium (46-90 min)","February"],[23,"30-01-2026","21:00","Secunderabad Central","Scooter","Personal",38,"Male",19.95,68,298.34,"UPI","Friday",21,"Yes",0.293,14.95,"36-50","Medium (46-90 min)","January"],[24,"02-03-2026","14:00","Uppal EV Hub","Bike","Business",47,"Female",17.6,93,250.32,"UPI","Monday",14,"No",0.189,14.22,"36-50","Long (>90 min)","March"],[25,"06-02-2026","20:00","Secunderabad Central","Scooter","Business",38,"Male",21.37,45,318.61,"Card","Friday",20,"Yes",0.475,14.91,"36-50","Short (<=45 min)","February"],[26,"25-01-2026","13:00","LB Nagar EV Station","Car","Office Commute",49,"Female",42.69,72,577.39,"Card","Sunday",13,"No",0.593,13.53,"36-50","Medium (46-90 min)","January"],[27,"02-01-2026","12:00","LB Nagar EV Station","Car","Office Commute",46,"Male",16.51,79,223.48,"Cash","Friday",12,"No",0.209,13.54,"36-50","Medium (46-90 min)","January"],[28,"13-01-2026","09:00","Hitech City EV","Scooter","Delivery",33,"Male",14.93,91,181.63,"Card","Tuesday",9,"No",0.164,12.17,"26-35","Long (>90 min)","January"],[29,"07-03-2026","13:00","Ameerpet Charge Point","Bike","Personal",39,"Male",9.23,27,112.89,"Card","Saturday",13,"No",0.342,12.23,"36-50","Short (<=45 min)","March"],[30,"15-01-2026","13:00","Kukatpally Charge Hub","Scooter","Office Commute",22,"Male",12.92,88,170.14,"Card","Thursday",13,"No",0.147,13.17,"18-25","Medium (46-90 min)","January"],[31,"16-02-2026","16:00","Ameerpet Charge Point","Scooter","Personal",47,"Male",5.52,54,80.63,"Card","Monday",16,"No",0.102,14.61,"36-50","Medium (46-90 min)","February"],[32,"24-02-2026","12:00","Uppal EV Hub","Scooter","Delivery",18,"Male",4.54,36,61.25,"Card","Tuesday",12,"No",0.126,13.49,"18-25","Short (<=45 min)","February"],[33,"17-02-2026","11:00","Kukatpally Charge Hub","Car","Delivery",22,"Male",33.06,79,445.9,"Cash","Tuesday",11,"No",0.418,13.49,"18-25","Medium (46-90 min)","February"],[34,"20-02-2026","17:00","Kukatpally Charge Hub","Scooter","Office Commute",47,"Female",5.21,77,77.27,"Card","Friday",17,"Yes",0.068,14.83,"36-50","Medium (46-90 min)","February"],[35,"31-03-2026","14:00","LB Nagar EV Station","Bike","Delivery",27,"Female",6.29,91,85.34,"Card","Tuesday",14,"No",0.069,13.57,"26-35","Long (>90 min)","March"],[36,"19-01-2026","14:00","Hitech City EV","Car","Personal",33,"Female",33.74,37,523.42,"Wallet","Monday",14,"No",0.912,15.51,"26-35","Short (<=45 min)","January"],[37,"25-03-2026","15:00","Uppal EV Hub","Scooter","Ride Sharing",54,"Female",15.22,86,242.17,"Wallet","Wednesday",15,"No",0.177,15.91,"51+","Medium (46-90 min)","March"],[38,"13-02-2026","12:00","Kukatpally Charge Hub","Scooter","Office Commute",52,"Male",10.17,74,145.53,"Card","Friday",12,"No",0.137,14.31,"51+","Medium (46-90 min)","February"],[39,"31-03-2026","13:00","Ameerpet Charge Point","Scooter","Delivery",28,"Female",12.42,80,208.99,"UPI","Tuesday",13,"No",0.155,16.83,"26-35","Medium (46-90 min)","March"],[40,"05-02-2026","11:00","Uppal EV Hub","Car","Delivery",53,"Male",38.63,116,542.49,"Card","Thursday",11,"No",0.333,14.04,"51+","Long (>90 min)","February"],[41,"06-02-2026","12:00","Secunderabad Central","Bike","Office Commute",34,"Male",17.06,62,244.58,"UPI","Friday",12,"No",0.275,14.34,"26-35","Medium (46-90 min)","February"],[42,"28-02-2026","10:00","Secunderabad Central","Scooter","Office Commute",24,"Female",21.21,75,315.96,"Card","Saturday",10,"No",0.283,14.9,"18-25","Medium (46-90 min)","February"],[43,"16-01-2026","13:00","Secunderabad Central","Scooter","Office Commute",40,"Female",9.24,33,162.57,"Card","Friday",13,"No",0.28,17.59,"36-50","Short (<=45 min)","January"],[44,"08-02-2026","22:00","Kukatpally Charge Hub","Scooter","Office Commute",35,"Other",17.0,76,289.43,"UPI","Sunday",22,"No",0.224,17.03,"26-35","Medium (46-90 min)","February"],[45,"07-01-2026","13:00","Secunderabad Central","Scooter","Delivery",22,"Male",10.54,42,163.19,"UPI","Wednesday",13,"No",0.251,15.48,"18-25","Short (<=45 min)","January"],[46,"06-03-2026","19:00","Kukatpally Charge Hub","Scooter","Delivery",23,"Female",20.25,61,288.87,"Wallet","Friday",19,"Yes",0.332,14.27,"18-25","Medium (46-90 min)","March"],[47,"15-03-2026","19:00","Kukatpally Charge Hub","Scooter","Personal",37,"Male",12.36,33,196.46,"UPI","Sunday",19,"Yes",0.375,15.89,"36-50","Short (<=45 min)","March"],[48,"03-01-2026","15:00","Uppal EV Hub","Car","Office Commute",50,"Male",24.37,136,294.23,"Cash","Saturday",15,"No",0.179,12.07,"36-50","Long (>90 min)","January"],[49,"14-02-2026","08:00","Secunderabad Central","Car","Business",53,"Male",29.41,136,445.29,"UPI","Saturday",8,"No",0.216,15.14,"51+","Long (>90 min)","February"],[50,"18-02-2026","16:00","LB Nagar EV Station","Bike","Personal",40,"Male",14.92,46,264.18,"Cash","Wednesday",16,"No",0.324,17.71,"36-50","Medium (46-90 min)","February"],[51,"17-03-2026","10:00","Hitech City EV","Scooter","Personal",45,"Male",6.22,98,111.52,"Card","Tuesday",10,"No",0.063,17.93,"36-50","Long (>90 min)","March"],[52,"04-03-2026","14:00","Hitech City EV","Scooter","Office Commute",30,"Female",18.46,86,326.76,"Cash","Wednesday",14,"No",0.215,17.7,"26-35","Medium (46-90 min)","March"],[53,"10-03-2026","15:00","Ameerpet Charge Point","Scooter","Personal",22,"Male",20.72,53,349.44,"Cash","Tuesday",15,"No",0.391,16.86,"18-25","Medium (46-90 min)","March"],[54,"18-02-2026","13:00","Secunderabad Central","Car","Ride Sharing",30,"Male",24.97,38,319.68,"UPI","Wednesday",13,"No",0.657,12.8,"26-35","Short (<=45 min)","February"],[55,"24-02-2026","18:00","LB Nagar EV Station","Car","Business",40,"Female",44.99,134,769.25,"UPI","Tuesday",18,"Yes",0.336,17.1,"36-50","Long (>90 min)","February"],[56,"26-03-2026","13:00","Kukatpally Charge Hub","Scooter","Office Commute",18,"Female",21.13,71,298.92,"Cash","Thursday",13,"No",0.298,14.15,"18-25","Medium (46-90 min)","March"],[57,"08-02-2026","16:00","Secunderabad Central","Bike","Office Commute",18,"Male",17.67,67,305.05,"UPI","Sunday",16,"No",0.264,17.26,"18-25","Medium (46-90 min)","February"],[58,"17-01-2026","10:00","Kukatpally Charge Hub","Scooter","Delivery",28,"Male",17.35,35,209.69,"Card","Saturday",10,"No",0.496,12.09,"26-35","Short (<=45 min)","January"],[59,"19-02-2026","15:00","Ameerpet Charge Point","Scooter","Office Commute",55,"Male",11.31,93,155.97,"Card","Thursday",15,"No",0.122,13.79,"51+","Long (>90 min)","February"],[60,"20-02-2026","16:00","Uppal EV Hub","Car","Personal",37,"Male",27.16,137,406.17,"UPI","Friday",16,"No",0.198,14.95,"36-50","Long (>90 min)","February"],[61,"12-02-2026","12:00","Secunderabad Central","Scooter","Office Commute",25,"Male",5.45,77,78.84,"Cash","Thursday",12,"No",0.071,14.47,"18-25","Medium (46-90 min)","February"],[62,"08-03-2026","14:00","Secunderabad Central","Car","Office Commute",22,"Male",31.86,71,388.45,"Card","Sunday",14,"No",0.449,12.19,"18-25","Medium (46-90 min)","March"],[63,"01-01-2026","14:00","Uppal EV Hub","Scooter","Personal",44,"Male",19.99,84,315.19,"Wallet","Thursday",14,"No",0.238,15.77,"36-50","Medium (46-90 min)","January"],[64,"25-02-2026","18:00","Ameerpet Charge Point","Car","Ride Sharing",25,"Female",14.02,54,185.79,"Wallet","Wednesday",18,"Yes",0.26,13.25,"18-25","Medium (46-90 min)","February"],[65,"25-02-2026","14:00","Ameerpet Charge Point","Bike","Delivery",31,"Male",10.01,34,161.38,"Wallet","Wednesday",14,"No",0.294,16.12,"26-35","Short (<=45 min)","February"],[66,"18-01-2026","13:00","Uppal EV Hub","Bike","Delivery",45,"Male",7.61,49,100.93,"Card","Sunday",13,"No",0.155,13.26,"36-50","Medium (46-90 min)","January"],[67,"13-02-2026","12:00","Ameerpet Charge Point","Scooter","Ride Sharing",35,"Male",12.01,65,186.34,"Cash","Friday",12,"No",0.185,15.52,"26-35","Medium (46-90 min)","February"],[68,"09-02-2026","13:00","LB Nagar EV Station","Scooter","Ride Sharing",51,"Male",8.39,62,117.33,"UPI","Monday",13,"No",0.135,13.98,"51+","Medium (46-90 min)","February"],[69,"02-02-2026","06:00","Hitech City EV","Scooter","Ride Sharing",47,"Male",9.94,92,124.09,"Wallet","Monday",6,"No",0.108,12.48,"36-50","Long (>90 min)","February"],[70,"31-01-2026","13:00","Ameerpet Charge Point","Car","Personal",28,"Female",15.7,120,212.66,"Cash","Saturday",13,"No",0.131,13.55,"26-35","Long (>90 min)","January"],[71,"20-02-2026","18:00","Ameerpet Charge Point","Car","Office Commute",22,"Male",29.66,68,431.58,"UPI","Friday",18,"Yes",0.436,14.55,"18-25","Medium (46-90 min)","February"],[72,"20-01-2026","12:00","LB Nagar EV Station","Scooter","Personal",28,"Female",14.6,49,227.25,"Card","Tuesday",12,"No",0.298,15.57,"26-35","Medium (46-90 min)","January"],[73,"19-02-2026","13:00","Ameerpet Charge Point","Bike","Office Commute",19,"Male",13.43,35,161.37,"UPI","Thursday",13,"No",0.384,12.02,"18-25","Short (<=45 min)","February"],[74,"16-03-2026","14:00","Uppal EV Hub","Bike","Ride Sharing",31,"Female",18.09,99,239.35,"Wallet","Monday",14,"No",0.183,13.23,"26-35","Long (>90 min)","March"],[75,"04-02-2026","19:00","Kukatpally Charge Hub","Car","Office Commute",54,"Male",13.59,52,176.44,"UPI","Wednesday",19,"Yes",0.261,12.98,"51+","Medium (46-90 min)","February"],[76,"24-03-2026","16:00","Kukatpally Charge Hub","Bike","Personal",35,"Female",9.82,57,140.02,"Wallet","Tuesday",16,"No",0.172,14.26,"26-35","Medium (46-90 min)","March"],[77,"07-02-2026","14:00","Uppal EV Hub","Scooter","Ride Sharing",19,"Male",13.97,92,220.0,"Wallet","Saturday",14,"No",0.152,15.75,"18-25","Long (>90 min)","February"],[78,"11-03-2026","20:00","Hitech City EV","Bike","Ride Sharing",46,"Male",9.36,80,144.56,"UPI","Wednesday",20,"Yes",0.117,15.44,"36-50","Medium (46-90 min)","March"],[79,"07-02-2026","17:00","Uppal EV Hub","Car","Office Commute",39,"Female",37.69,86,622.98,"Card","Saturday",17,"Yes",0.438,16.53,"36-50","Medium (46-90 min)","February"],[80,"07-02-2026","14:00","Hitech City EV","Scooter","Personal",46,"Male",11.68,61,168.86,"UPI","Saturday",14,"No",0.191,14.46,"36-50","Medium (46-90 min)","February"],[81,"02-01-2026","07:00","Ameerpet Charge Point","Bike","Office Commute",22,"Female",13.74,96,193.18,"Card","Friday",7,"No",0.143,14.06,"18-25","Long (>90 min)","January"],[82,"13-03-2026","13:00","Ameerpet Charge Point","Scooter","Personal",35,"Male",14.68,26,253.05,"Cash","Friday",13,"No",0.565,17.24,"26-35","Short (<=45 min)","March"],[83,"09-03-2026","17:00","Uppal EV Hub","Scooter","Personal",26,"Male",15.38,80,270.71,"Card","Monday",17,"Yes",0.192,17.6,"26-35","Medium (46-90 min)","March"],[84,"11-01-2026","13:00","LB Nagar EV Station","Scooter","Office Commute",40,"Female",21.71,90,328.13,"Cash","Sunday",13,"No",0.241,15.11,"36-50","Medium (46-90 min)","January"],[85,"15-01-2026","13:00","Hitech City EV","Scooter","Ride Sharing",43,"Male",9.37,54,142.63,"Wallet","Thursday",13,"No",0.174,15.22,"36-50","Medium (46-90 min)","January"],[86,"07-02-2026","13:00","Uppal EV Hub","Scooter","Personal",41,"Male",17.01,37,207.61,"UPI","Saturday",13,"No",0.46,12.21,"36-50","Short (<=45 min)","February"],[87,"18-02-2026","17:00","Ameerpet Charge Point","Scooter","Delivery",24,"Other",7.18,59,110.2,"Card","Wednesday",17,"Yes",0.122,15.35,"18-25","Medium (46-90 min)","February"],[88,"04-03-2026","22:00","Kukatpally Charge Hub","Bike","Personal",36,"Male",14.31,60,225.42,"UPI","Wednesday",22,"No",0.239,15.75,"36-50","Medium (46-90 min)","March"],[89,"30-01-2026","18:00","Secunderabad Central","Bike","Personal",19,"Male",8.59,61,128.65,"Wallet","Friday",18,"Yes",0.141,14.98,"18-25","Medium (46-90 min)","January"],[90,"04-03-2026","10:00","Secunderabad Central","Scooter","Office Commute",27,"Female",4.43,64,74.52,"Wallet","Wednesday",10,"No",0.069,16.82,"26-35","Medium (46-90 min)","March"],[91,"01-02-2026","16:00","Secunderabad Central","Bike","Office Commute",25,"Male",3.51,84,45.94,"UPI","Sunday",16,"No",0.042,13.09,"18-25","Medium (46-90 min)","February"],[92,"08-01-2026","10:00","LB Nagar EV Station","Scooter","Ride Sharing",21,"Female",16.72,35,241.45,"Wallet","Thursday",10,"No",0.478,14.44,"18-25","Short (<=45 min)","January"],[93,"17-02-2026","10:00","Kukatpally Charge Hub","Bike","Office Commute",36,"Male",16.98,56,294.74,"Wallet","Tuesday",10,"No",0.303,17.36,"36-50","Medium (46-90 min)","February"],[94,"10-03-2026","13:00","Hitech City EV","Scooter","Ride Sharing",54,"Male",10.21,66,149.3,"Cash","Tuesday",13,"No",0.155,14.62,"51+","Medium (46-90 min)","March"],[95,"27-03-2026","17:00","Secunderabad Central","Scooter","Ride Sharing",49,"Male",13.75,26,187.16,"Cash","Friday",17,"Yes",0.529,13.61,"36-50","Short (<=45 min)","March"],[96,"07-03-2026","15:00","Secunderabad Central","Scooter","Personal",43,"Male",5.65,37,77.0,"Wallet","Saturday",15,"No",0.153,13.63,"36-50","Short (<=45 min)","March"],[97,"11-03-2026","19:00","LB Nagar EV Station","Scooter","Office Commute",54,"Female",13.95,87,184.73,"Card","Wednesday",19,"Yes",0.16,13.24,"51+","Medium (46-90 min)","March"],[98,"27-03-2026","10:00","Ameerpet Charge Point","Car","Personal",24,"Male",40.84,123,589.15,"Card","Friday",10,"No",0.332,14.43,"18-25","Long (>90 min)","March"],[99,"15-02-2026","08:00","Secunderabad Central","Scooter","Office Commute",43,"Male",17.02,87,248.92,"Cash","Sunday",8,"No",0.196,14.63,"36-50","Medium (46-90 min)","February"],[100,"28-02-2026","12:00","LB Nagar EV Station","Bike","Office Commute",50,"Male",12.04,65,156.25,"Cash","Saturday",12,"No",0.185,12.98,"36-50","Medium (46-90 min)","February"],[101,"22-03-2026","14:00","Ameerpet Charge Point","Bike","Personal",26,"Male",9.35,79,140.01,"Wallet","Sunday",14,"No",0.118,14.97,"26-35","Medium (46-90 min)","March"],[102,"11-02-2026","14:00","Hitech City EV","Scooter","Delivery",47,"Male",4.48,32,62.18,"Wallet","Wednesday",14,"No",0.14,13.88,"36-50","Short (<=45 min)","February"],[103,"18-02-2026","10:00","Hitech City EV","Car","Personal",41,"Female",26.72,102,442.3,"UPI","Wednesday",10,"No",0.262,16.55,"36-50","Long (>90 min)","February"],[104,"21-03-2026","18:00","Secunderabad Central","Scooter","Business",43,"Male",12.3,77,215.87,"Wallet","Saturday",18,"Yes",0.16,17.55,"36-50","Medium (46-90 min)","March"],[105,"26-01-2026","15:00","Kukatpally Charge Hub","Car","Delivery",25,"Other",13.12,134,194.77,"Card","Monday",15,"No",0.098,14.85,"18-25","Long (>90 min)","January"],[106,"08-02-2026","13:00","LB Nagar EV Station","Bike","Personal",52,"Male",15.25,61,263.91,"Wallet","Sunday",13,"No",0.25,17.31,"51+","Medium (46-90 min)","February"],[107,"09-02-2026","13:00","Uppal EV Hub","Scooter","Personal",39,"Male",13.88,71,240.28,"Card","Monday",13,"No",0.195,17.31,"36-50","Medium (46-90 min)","February"],[108,"07-03-2026","08:00","Kukatpally Charge Hub","Car","Personal",49,"Female",12.7,42,153.15,"UPI","Saturday",8,"No",0.302,12.06,"36-50","Short (<=45 min)","March"],[109,"03-03-2026","10:00","Hitech City EV","Scooter","Business",27,"Male",12.12,50,183.37,"UPI","Tuesday",10,"No",0.242,15.13,"26-35","Medium (46-90 min)","March"],[110,"18-02-2026","10:00","Hitech City EV","Scooter","Delivery",54,"Male",8.46,26,151.61,"UPI","Wednesday",10,"No",0.325,17.92,"51+","Short (<=45 min)","February"],[111,"15-01-2026","13:00","Ameerpet Charge Point","Bike","Ride Sharing",54,"Male",7.15,56,123.46,"Card","Thursday",13,"No",0.128,17.27,"51+","Medium (46-90 min)","January"],[112,"29-03-2026","14:00","Hitech City EV","Bike","Office Commute",25,"Female",6.17,73,96.6,"UPI","Sunday",14,"No",0.085,15.66,"18-25","Medium (46-90 min)","March"],[113,"15-03-2026","08:00","Ameerpet Charge Point","Scooter","Delivery",23,"Female",3.7,72,49.17,"UPI","Sunday",8,"No",0.051,13.29,"18-25","Medium (46-90 min)","March"],[114,"20-01-2026","22:00","Ameerpet Charge Point","Scooter","Personal",34,"Male",10.53,86,140.52,"Cash","Tuesday",22,"No",0.122,13.34,"26-35","Medium (46-90 min)","January"],[115,"30-03-2026","15:00","Uppal EV Hub","Bike","Personal",45,"Male",4.74,28,81.09,"Card","Monday",15,"No",0.169,17.11,"36-50","Short (<=45 min)","March"],[116,"09-01-2026","12:00","Ameerpet Charge Point","Car","Personal",32,"Male",36.26,108,445.76,"Card","Friday",12,"No",0.336,12.29,"26-35","Long (>90 min)","January"],[117,"11-03-2026","20:00","Kukatpally Charge Hub","Scooter","Ride Sharing",49,"Male",20.0,92,308.48,"Cash","Wednesday",20,"Yes",0.217,15.42,"36-50","Long (>90 min)","March"],[118,"09-02-2026","14:00","Secunderabad Central","Scooter","Ride Sharing",45,"Female",19.69,90,320.03,"Wallet","Monday",14,"No",0.219,16.25,"36-50","Medium (46-90 min)","February"],[119,"14-02-2026","16:00","LB Nagar EV Station","Bike","Office Commute",22,"Female",14.75,90,179.63,"Wallet","Saturday",16,"No",0.164,12.18,"18-25","Medium (46-90 min)","February"],[120,"11-02-2026","10:00","Ameerpet Charge Point","Scooter","Ride Sharing",31,"Female",17.13,44,225.37,"UPI","Wednesday",10,"No",0.389,13.16,"26-35","Short (<=45 min)","February"],[121,"15-02-2026","12:00","Ameerpet Charge Point","Bike","Delivery",41,"Female",5.2,34,71.25,"Wallet","Sunday",12,"No",0.153,13.7,"36-50","Short (<=45 min)","February"],[122,"15-03-2026","13:00","LB Nagar EV Station","Car","Delivery",39,"Female",24.94,107,309.44,"Wallet","Sunday",13,"No",0.233,12.41,"36-50","Long (>90 min)","March"],[123,"05-03-2026","16:00","Uppal EV Hub","Scooter","Office Commute",35,"Female",14.06,98,250.48,"Cash","Thursday",16,"No",0.143,17.82,"26-35","Long (>90 min)","March"],[124,"21-02-2026","17:00","LB Nagar EV Station","Scooter","Office Commute",49,"Female",3.42,76,50.2,"Card","Saturday",17,"Yes",0.045,14.68,"36-50","Medium (46-90 min)","February"],[125,"29-01-2026","20:00","Kukatpally Charge Hub","Scooter","Delivery",49,"Male",19.23,76,306.28,"Wallet","Thursday",20,"Yes",0.253,15.93,"36-50","Medium (46-90 min)","January"],[126,"08-03-2026","20:00","Kukatpally Charge Hub","Scooter","Business",54,"Female",11.21,54,153.02,"Wallet","Sunday",20,"Yes",0.208,13.65,"51+","Medium (46-90 min)","March"],[127,"01-01-2026","12:00","Secunderabad Central","Car","Office Commute",42,"Female",36.61,94,542.94,"Wallet","Thursday",12,"No",0.389,14.83,"36-50","Long (>90 min)","January"],[128,"13-03-2026","11:00","Secunderabad Central","Scooter","Ride Sharing",24,"Female",4.73,34,57.71,"Cash","Friday",11,"No",0.139,12.2,"18-25","Short (<=45 min)","March"],[129,"03-01-2026","11:00","Uppal EV Hub","Bike","Personal",37,"Male",3.02,40,45.2,"Wallet","Saturday",11,"No",0.076,14.97,"36-50","Short (<=45 min)","January"],[130,"27-03-2026","15:00","Secunderabad Central","Scooter","Business",34,"Male",18.15,30,260.59,"Card","Friday",15,"No",0.605,14.36,"26-35","Short (<=45 min)","March"],[131,"07-02-2026","12:00","LB Nagar EV Station","Bike","Business",28,"Male",19.34,32,260.2,"UPI","Saturday",12,"No",0.604,13.45,"26-35","Short (<=45 min)","February"],[132,"15-02-2026","10:00","Hitech City EV","Bike","Office Commute",49,"Female",14.74,30,224.2,"UPI","Sunday",10,"No",0.491,15.21,"36-50","Short (<=45 min)","February"],[133,"18-03-2026","09:00","Ameerpet Charge Point","Car","Business",43,"Female",23.81,119,314.28,"Wallet","Wednesday",9,"No",0.2,13.2,"36-50","Long (>90 min)","March"],[134,"13-02-2026","10:00","LB Nagar EV Station","Bike","Personal",26,"Male",16.42,65,266.95,"Cash","Friday",10,"No",0.253,16.26,"26-35","Medium (46-90 min)","February"],[135,"13-03-2026","16:00","Secunderabad Central","Car","Personal",28,"Female",23.2,92,392.2,"Card","Friday",16,"No",0.252,16.91,"26-35","Long (>90 min)","March"],[136,"03-01-2026","08:00","Ameerpet Charge Point","Scooter","Office Commute",40,"Female",11.33,60,177.87,"Wallet","Saturday",8,"No",0.189,15.7,"36-50","Medium (46-90 min)","January"],[137,"24-02-2026","14:00","Kukatpally Charge Hub","Car","Delivery",35,"Male",40.77,103,570.54,"Cash","Tuesday",14,"No",0.396,13.99,"26-35","Long (>90 min)","February"],[138,"28-02-2026","15:00","Kukatpally Charge Hub","Scooter","Personal",32,"Male",15.92,59,274.05,"Wallet","Saturday",15,"No",0.27,17.21,"26-35","Medium (46-90 min)","February"],[139,"27-02-2026","16:00","Hitech City EV","Scooter","Delivery",41,"Male",9.57,63,148.65,"Card","Friday",16,"No",0.152,15.53,"36-50","Medium (46-90 min)","February"],[140,"07-03-2026","15:00","Secunderabad Central","Car","Personal",29,"Male",33.62,83,572.0,"UPI","Saturday",15,"No",0.405,17.01,"26-35","Medium (46-90 min)","March"],[141,"26-01-2026","16:00","Hitech City EV","Car","Office Commute",19,"Male",17.93,124,268.11,"Card","Monday",16,"No",0.145,14.95,"18-25","Long (>90 min)","January"],[142,"01-03-2026","13:00","Hitech City EV","Bike","Personal",23,"Female",14.01,48,201.65,"Wallet","Sunday",13,"No",0.292,14.39,"18-25","Medium (46-90 min)","March"],[143,"05-01-2026","12:00","Kukatpally Charge Hub","Car","Office Commute",48,"Male",16.32,42,212.45,"Card","Monday",12,"No",0.389,13.02,"36-50","Short (<=45 min)","January"],[144,"10-01-2026","16:00","Secunderabad Central","Scooter","Business",37,"Male",11.54,70,163.17,"Cash","Saturday",16,"No",0.165,14.14,"36-50","Medium (46-90 min)","January"],[145,"06-02-2026","17:00","LB Nagar EV Station","Car","Office Commute",37,"Male",26.73,40,405.95,"Cash","Friday",17,"Yes",0.668,15.19,"36-50","Short (<=45 min)","February"],[146,"26-01-2026","08:00","Kukatpally Charge Hub","Scooter","Office Commute",50,"Male",11.59,28,149.42,"UPI","Monday",8,"No",0.414,12.89,"36-50","Short (<=45 min)","January"],[147,"29-03-2026","16:00","Kukatpally Charge Hub","Scooter","Ride Sharing",48,"Male",9.14,64,128.46,"Card","Sunday",16,"No",0.143,14.05,"36-50","Medium (46-90 min)","March"],[148,"25-03-2026","10:00","Ameerpet Charge Point","Scooter","Office Commute",25,"Other",5.73,32,91.84,"Cash","Wednesday",10,"No",0.179,16.03,"18-25","Short (<=45 min)","March"],[149,"05-01-2026","20:00","Ameerpet Charge Point","Scooter","Office Commute",47,"Male",15.57,71,268.03,"Cash","Monday",20,"Yes",0.219,17.21,"36-50","Medium (46-90 min)","January"],[150,"17-03-2026","10:00","Uppal EV Hub","Car","Office Commute",33,"Female",42.32,105,654.34,"Card","Tuesday",10,"No",0.403,15.46,"26-35","Long (>90 min)","March"],[151,"07-03-2026","22:00","Uppal EV Hub","Scooter","Business",30,"Female",21.57,67,354.35,"Cash","Saturday",22,"No",0.322,16.43,"26-35","Medium (46-90 min)","March"],[152,"04-01-2026","16:00","Uppal EV Hub","Car","Office Commute",28,"Male",37.16,66,590.56,"UPI","Sunday",16,"No",0.563,15.89,"26-35","Medium (46-90 min)","January"],[153,"15-01-2026","15:00","Secunderabad Central","Bike","Personal",42,"Male",13.71,65,201.01,"Card","Thursday",15,"No",0.211,14.66,"36-50","Medium (46-90 min)","January"],[154,"31-03-2026","15:00","Ameerpet Charge Point","Scooter","Personal",20,"Male",15.21,96,259.81,"Cash","Tuesday",15,"No",0.158,17.08,"18-25","Long (>90 min)","March"],[155,"26-01-2026","10:00","Hitech City EV","Scooter","Personal",40,"Female",13.01,78,230.63,"UPI","Monday",10,"No",0.167,17.73,"36-50","Medium (46-90 min)","January"],[156,"21-01-2026","11:00","Hitech City EV","Scooter","Business",53,"Female",15.3,29,269.42,"Card","Wednesday",11,"No",0.528,17.61,"51+","Short (<=45 min)","January"],[157,"19-01-2026","10:00","Hitech City EV","Bike","Delivery",46,"Female",7.88,65,109.26,"Cash","Monday",10,"No",0.121,13.87,"36-50","Medium (46-90 min)","January"],[158,"30-01-2026","16:00","Uppal EV Hub","Scooter","Personal",24,"Female",10.86,38,164.5,"Wallet","Friday",16,"No",0.286,15.15,"18-25","Short (<=45 min)","January"],[159,"04-03-2026","10:00","Hitech City EV","Bike","Personal",24,"Female",7.87,53,119.37,"Wallet","Wednesday",10,"No",0.148,15.17,"18-25","Medium (46-90 min)","March"],[160,"13-01-2026","15:00","Uppal EV Hub","Car","Ride Sharing",32,"Male",41.18,78,701.65,"Cash","Tuesday",15,"No",0.528,17.04,"26-35","Medium (46-90 min)","January"],[161,"24-01-2026","13:00","Ameerpet Charge Point","Scooter","Delivery",53,"Male",17.83,75,224.18,"Cash","Saturday",13,"No",0.238,12.57,"51+","Medium (46-90 min)","January"],[162,"15-03-2026","13:00","Secunderabad Central","Bike","Ride Sharing",50,"Male",6.19,32,75.19,"Wallet","Sunday",13,"No",0.193,12.15,"36-50","Short (<=45 min)","March"],[163,"04-02-2026","15:00","LB Nagar EV Station","Bike","Delivery",42,"Other",7.41,35,119.78,"Wallet","Wednesday",15,"No",0.212,16.16,"36-50","Short (<=45 min)","February"],[164,"11-02-2026","13:00","Hitech City EV","Car","Ride Sharing",21,"Female",34.85,95,475.53,"Card","Wednesday",13,"No",0.367,13.65,"18-25","Long (>90 min)","February"],[165,"05-02-2026","10:00","Uppal EV Hub","Car","Office Commute",21,"Male",18.33,122,293.63,"Cash","Thursday",10,"No",0.15,16.02,"18-25","Long (>90 min)","February"],[166,"27-01-2026","15:00","Secunderabad Central","Scooter","Personal",20,"Male",14.26,28,203.55,"Card","Tuesday",15,"No",0.509,14.27,"18-25","Short (<=45 min)","January"],[167,"22-03-2026","22:00","LB Nagar EV Station","Scooter","Personal",53,"Other",9.34,72,154.35,"Wallet","Sunday",22,"No",0.13,16.53,"51+","Medium (46-90 min)","March"],[168,"21-03-2026","13:00","Hitech City EV","Scooter","Office Commute",29,"Other",18.61,60,266.09,"Wallet","Saturday",13,"No",0.31,14.3,"26-35","Medium (46-90 min)","March"],[169,"05-01-2026","16:00","LB Nagar EV Station","Car","Personal",23,"Male",20.04,117,344.46,"UPI","Monday",16,"No",0.171,17.19,"18-25","Long (>90 min)","January"],[170,"16-01-2026","14:00","Hitech City EV","Scooter","Office Commute",19,"Male",4.2,50,56.41,"UPI","Friday",14,"No",0.084,13.43,"18-25","Medium (46-90 min)","January"],[171,"16-03-2026","18:00","Ameerpet Charge Point","Scooter","Personal",52,"Female",20.91,68,321.93,"Cash","Monday",18,"Yes",0.308,15.4,"51+","Medium (46-90 min)","March"],[172,"12-01-2026","20:00","Secunderabad Central","Scooter","Delivery",47,"Female",18.53,35,245.95,"Card","Monday",20,"Yes",0.529,13.27,"36-50","Short (<=45 min)","January"],[173,"14-03-2026","12:00","Secunderabad Central","Scooter","Office Commute",37,"Male",5.92,94,91.5,"UPI","Saturday",12,"No",0.063,15.46,"36-50","Long (>90 min)","March"],[174,"23-02-2026","12:00","LB Nagar EV Station","Bike","Ride Sharing",20,"Female",5.64,86,90.3,"Card","Monday",12,"No",0.066,16.01,"18-25","Medium (46-90 min)","February"],[175,"08-01-2026","14:00","Kukatpally Charge Hub","Bike","Personal",49,"Male",7.42,69,130.7,"Cash","Thursday",14,"No",0.108,17.61,"36-50","Medium (46-90 min)","January"],[176,"18-01-2026","12:00","Secunderabad Central","Car","Personal",40,"Male",12.01,41,200.4,"Card","Sunday",12,"No",0.293,16.69,"36-50","Short (<=45 min)","January"],[177,"30-03-2026","09:00","Uppal EV Hub","Car","Personal",26,"Male",13.91,47,192.19,"Wallet","Monday",9,"No",0.296,13.82,"26-35","Medium (46-90 min)","March"],[178,"07-01-2026","16:00","Uppal EV Hub","Scooter","Office Commute",46,"Female",12.68,64,184.56,"Wallet","Wednesday",16,"No",0.198,14.56,"36-50","Medium (46-90 min)","January"],[179,"04-03-2026","13:00","Hitech City EV","Scooter","Personal",24,"Female",9.99,82,120.51,"Card","Wednesday",13,"No",0.122,12.06,"18-25","Medium (46-90 min)","March"],[180,"03-03-2026","14:00","Ameerpet Charge Point","Scooter","Delivery",22,"Male",7.94,25,106.72,"UPI","Tuesday",14,"No",0.318,13.44,"18-25","Short (<=45 min)","March"],[181,"22-02-2026","17:00","Secunderabad Central","Car","Office Commute",28,"Male",28.1,123,353.73,"Card","Sunday",17,"Yes",0.228,12.59,"26-35","Long (>90 min)","February"],[182,"09-03-2026","18:00","Secunderabad Central","Scooter","Office Commute",46,"Male",15.38,83,266.92,"UPI","Monday",18,"Yes",0.185,17.36,"36-50","Medium (46-90 min)","March"],[183,"05-03-2026","17:00","Hitech City EV","Scooter","Office Commute",50,"Female",16.07,27,279.87,"UPI","Thursday",17,"Yes",0.595,17.42,"36-50","Short (<=45 min)","March"],[184,"28-01-2026","15:00","Uppal EV Hub","Bike","Personal",40,"Male",20.01,36,328.61,"UPI","Wednesday",15,"No",0.556,16.42,"36-50","Short (<=45 min)","January"],[185,"28-03-2026","16:00","Secunderabad Central","Scooter","Delivery",41,"Male",4.61,27,69.4,"Cash","Saturday",16,"No",0.171,15.05,"36-50","Short (<=45 min)","March"],[186,"27-02-2026","14:00","Secunderabad Central","Car","Delivery",45,"Male",44.03,78,673.63,"Card","Friday",14,"No",0.564,15.3,"36-50","Medium (46-90 min)","February"],[187,"08-01-2026","12:00","Hitech City EV","Scooter","Ride Sharing",25,"Female",4.56,71,65.19,"Card","Thursday",12,"No",0.064,14.3,"18-25","Medium (46-90 min)","January"],[188,"08-03-2026","10:00","Uppal EV Hub","Bike","Business",27,"Female",17.72,46,316.8,"Card","Sunday",10,"No",0.385,17.88,"26-35","Medium (46-90 min)","March"],[189,"13-01-2026","15:00","Hitech City EV","Car","Office Commute",27,"Male",38.79,132,517.74,"UPI","Tuesday",15,"No",0.294,13.35,"26-35","Long (>90 min)","January"],[190,"28-02-2026","14:00","Hitech City EV","Scooter","Office Commute",38,"Female",6.11,62,73.79,"UPI","Saturday",14,"No",0.099,12.08,"36-50","Medium (46-90 min)","February"],[191,"01-02-2026","12:00","Ameerpet Charge Point","Car","Delivery",38,"Other",20.53,113,315.04,"Wallet","Sunday",12,"No",0.182,15.35,"36-50","Long (>90 min)","February"],[192,"16-03-2026","12:00","Hitech City EV","Car","Office Commute",35,"Male",20.89,106,262.17,"Card","Monday",12,"No",0.197,12.55,"26-35","Long (>90 min)","March"],[193,"20-03-2026","14:00","Secunderabad Central","Car","Delivery",50,"Male",36.18,66,556.85,"UPI","Friday",14,"No",0.548,15.39,"36-50","Medium (46-90 min)","March"],[194,"30-01-2026","18:00","Ameerpet Charge Point","Bike","Personal",25,"Male",17.46,79,313.45,"Cash","Friday",18,"Yes",0.221,17.95,"18-25","Medium (46-90 min)","January"],[195,"05-03-2026","17:00","LB Nagar EV Station","Scooter","Personal",44,"Female",13.55,53,206.34,"Cash","Thursday",17,"Yes",0.256,15.23,"36-50","Medium (46-90 min)","March"],[196,"27-03-2026","18:00","LB Nagar EV Station","Car","Office Commute",51,"Female",39.48,106,652.88,"Wallet","Friday",18,"Yes",0.372,16.54,"51+","Long (>90 min)","March"],[197,"11-03-2026","18:00","Kukatpally Charge Hub","Car","Delivery",27,"Female",24.15,97,346.59,"UPI","Wednesday",18,"Yes",0.249,14.35,"26-35","Long (>90 min)","March"],[198,"23-02-2026","16:00","Hitech City EV","Scooter","Office Commute",37,"Male",14.77,90,222.48,"Wallet","Monday",16,"No",0.164,15.06,"36-50","Medium (46-90 min)","February"],[199,"29-03-2026","10:00","LB Nagar EV Station","Scooter","Personal",47,"Female",16.36,45,277.24,"UPI","Sunday",10,"No",0.364,16.95,"36-50","Short (<=45 min)","March"],[200,"04-03-2026","09:00","LB Nagar EV Station","Scooter","Business",48,"Female",9.35,64,133.16,"Card","Wednesday",9,"No",0.146,14.24,"36-50","Medium (46-90 min)","March"],[201,"24-02-2026","16:00","Uppal EV Hub","Scooter","Personal",28,"Female",10.06,47,131.15,"Card","Tuesday",16,"No",0.214,13.04,"26-35","Medium (46-90 min)","February"],[202,"04-01-2026","14:00","LB Nagar EV Station","Scooter","Delivery",26,"Female",16.03,40,246.79,"Card","Sunday",14,"No",0.401,15.4,"26-35","Short (<=45 min)","January"],[203,"19-02-2026","11:00","LB Nagar EV Station","Car","Office Commute",34,"Female",31.33,117,386.53,"Wallet","Thursday",11,"No",0.268,12.34,"26-35","Long (>90 min)","February"],[204,"15-02-2026","11:00","Hitech City EV","Scooter","Ride Sharing",27,"Female",11.77,77,185.86,"Card","Sunday",11,"No",0.153,15.79,"26-35","Medium (46-90 min)","February"],[205,"08-02-2026","14:00","LB Nagar EV Station","Scooter","Office Commute",48,"Female",16.86,60,203.68,"Cash","Sunday",14,"No",0.281,12.08,"36-50","Medium (46-90 min)","February"],[206,"30-01-2026","08:00","LB Nagar EV Station","Scooter","Office Commute",33,"Male",8.24,57,140.59,"Card","Friday",8,"No",0.145,17.06,"26-35","Medium (46-90 min)","January"],[207,"13-02-2026","11:00","Ameerpet Charge Point","Car","Business",38,"Male",13.53,78,190.62,"Wallet","Friday",11,"No",0.173,14.09,"36-50","Medium (46-90 min)","February"],[208,"15-01-2026","07:00","Kukatpally Charge Hub","Bike","Office Commute",31,"Female",21.3,98,288.45,"Wallet","Thursday",7,"No",0.217,13.54,"26-35","Long (>90 min)","January"],[209,"28-03-2026","11:00","Uppal EV Hub","Bike","Business",29,"Male",11.81,33,152.5,"Cash","Saturday",11,"No",0.358,12.91,"26-35","Short (<=45 min)","March"],[210,"12-03-2026","16:00","Kukatpally Charge Hub","Bike","Ride Sharing",39,"Male",21.63,70,288.91,"Card","Thursday",16,"No",0.309,13.36,"36-50","Medium (46-90 min)","March"],[211,"06-03-2026","13:00","Uppal EV Hub","Scooter","Delivery",51,"Female",15.62,59,257.66,"Cash","Friday",13,"No",0.265,16.5,"51+","Medium (46-90 min)","March"],[212,"29-03-2026","17:00","Secunderabad Central","Scooter","Office Commute",49,"Male",9.76,37,136.51,"Card","Sunday",17,"Yes",0.264,13.99,"36-50","Short (<=45 min)","March"],[213,"27-03-2026","07:00","Hitech City EV","Scooter","Ride Sharing",44,"Female",15.53,67,256.36,"UPI","Friday",7,"No",0.232,16.51,"36-50","Medium (46-90 min)","March"],[214,"04-03-2026","14:00","Hitech City EV","Scooter","Personal",52,"Male",9.53,74,161.36,"Card","Wednesday",14,"No",0.129,16.93,"51+","Medium (46-90 min)","March"],[215,"12-02-2026","17:00","Ameerpet Charge Point","Car","Office Commute",45,"Female",18.72,64,259.78,"UPI","Thursday",17,"Yes",0.292,13.88,"36-50","Medium (46-90 min)","February"],[216,"16-02-2026","11:00","Hitech City EV","Car","Delivery",29,"Male",29.17,99,413.54,"Wallet","Monday",11,"No",0.295,14.18,"26-35","Long (>90 min)","February"],[217,"09-02-2026","14:00","Kukatpally Charge Hub","Bike","Delivery",54,"Male",3.63,71,45.43,"Cash","Monday",14,"No",0.051,12.52,"51+","Medium (46-90 min)","February"],[218,"09-01-2026","17:00","Kukatpally Charge Hub","Bike","Business",38,"Female",21.38,49,384.38,"Card","Friday",17,"Yes",0.436,17.98,"36-50","Medium (46-90 min)","January"],[219,"28-02-2026","11:00","Uppal EV Hub","Scooter","Office Commute",37,"Female",13.64,30,223.47,"UPI","Saturday",11,"No",0.455,16.38,"36-50","Short (<=45 min)","February"],[220,"09-01-2026","17:00","Hitech City EV","Bike","Business",19,"Female",16.49,59,233.35,"Card","Friday",17,"Yes",0.279,14.15,"18-25","Medium (46-90 min)","January"],[221,"27-03-2026","18:00","Kukatpally Charge Hub","Scooter","Office Commute",43,"Male",6.3,42,80.99,"UPI","Friday",18,"Yes",0.15,12.86,"36-50","Short (<=45 min)","March"],[222,"20-02-2026","13:00","LB Nagar EV Station","Car","Delivery",28,"Female",33.49,61,408.11,"UPI","Friday",13,"No",0.549,12.19,"26-35","Medium (46-90 min)","February"],[223,"16-01-2026","10:00","LB Nagar EV Station","Scooter","Ride Sharing",18,"Female",3.07,45,48.72,"Cash","Friday",10,"No",0.068,15.87,"18-25","Short (<=45 min)","January"],[224,"27-02-2026","14:00","Secunderabad Central","Scooter","Delivery",31,"Female",7.04,42,118.59,"Cash","Friday",14,"No",0.168,16.85,"26-35","Short (<=45 min)","February"],[225,"18-03-2026","19:00","Secunderabad Central","Bike","Personal",44,"Male",19.61,53,262.0,"UPI","Wednesday",19,"Yes",0.37,13.36,"36-50","Medium (46-90 min)","March"],[226,"13-03-2026","10:00","Secunderabad Central","Scooter","Personal",42,"Male",18.24,27,324.71,"Card","Friday",10,"No",0.676,17.8,"36-50","Short (<=45 min)","March"],[227,"17-02-2026","16:00","Secunderabad Central","Car","Ride Sharing",37,"Other",39.26,100,602.83,"Cash","Tuesday",16,"No",0.393,15.35,"36-50","Long (>90 min)","February"],[228,"19-01-2026","18:00","Kukatpally Charge Hub","Scooter","Office Commute",34,"Male",16.37,25,242.48,"UPI","Monday",18,"Yes",0.655,14.81,"26-35","Short (<=45 min)","January"],[229,"14-01-2026","15:00","LB Nagar EV Station","Scooter","Personal",21,"Female",8.7,90,121.63,"Card","Wednesday",15,"No",0.097,13.98,"18-25","Medium (46-90 min)","January"],[230,"10-02-2026","22:00","LB Nagar EV Station","Bike","Ride Sharing",47,"Male",13.1,45,219.14,"UPI","Tuesday",22,"No",0.291,16.73,"36-50","Short (<=45 min)","February"],[231,"21-01-2026","09:00","Uppal EV Hub","Car","Delivery",26,"Female",31.77,105,539.26,"Cash","Wednesday",9,"No",0.303,16.97,"26-35","Long (>90 min)","January"],[232,"06-03-2026","08:00","LB Nagar EV Station","Bike","Personal",32,"Male",4.56,91,66.88,"Cash","Friday",8,"No",0.05,14.67,"26-35","Long (>90 min)","March"],[233,"21-01-2026","15:00","Hitech City EV","Bike","Delivery",45,"Male",16.35,53,244.04,"Card","Wednesday",15,"No",0.308,14.93,"36-50","Medium (46-90 min)","January"],[234,"07-03-2026","12:00","LB Nagar EV Station","Bike","Office Commute",42,"Male",21.69,27,338.94,"Wallet","Saturday",12,"No",0.803,15.63,"36-50","Short (<=45 min)","March"],[235,"08-01-2026","12:00","Kukatpally Charge Hub","Bike","Personal",31,"Male",11.56,46,153.06,"UPI","Thursday",12,"No",0.251,13.24,"26-35","Medium (46-90 min)","January"],[236,"02-03-2026","06:00","Secunderabad Central","Scooter","Ride Sharing",50,"Male",7.16,85,110.53,"Card","Monday",6,"No",0.084,15.44,"36-50","Medium (46-90 min)","March"],[237,"23-02-2026","20:00","Uppal EV Hub","Scooter","Ride Sharing",38,"Male",4.65,63,80.27,"UPI","Monday",20,"Yes",0.074,17.26,"36-50","Medium (46-90 min)","February"],[238,"05-03-2026","16:00","LB Nagar EV Station","Car","Office Commute",36,"Male",16.34,130,266.07,"Cash","Thursday",16,"No",0.126,16.28,"36-50","Long (>90 min)","March"],[239,"02-03-2026","12:00","Ameerpet Charge Point","Car","Delivery",42,"Female",43.52,40,589.47,"Wallet","Monday",12,"No",1.088,13.54,"36-50","Short (<=45 min)","March"],[240,"18-02-2026","15:00","LB Nagar EV Station","Bike","Ride Sharing",53,"Male",5.18,34,75.11,"Cash","Wednesday",15,"No",0.152,14.5,"51+","Short (<=45 min)","February"],[241,"17-03-2026","09:00","Kukatpally Charge Hub","Scooter","Delivery",19,"Female",20.89,69,313.66,"Wallet","Tuesday",9,"No",0.303,15.01,"18-25","Medium (46-90 min)","March"],[242,"14-03-2026","15:00","Secunderabad Central","Car","Delivery",46,"Male",35.89,91,461.3,"UPI","Saturday",15,"No",0.394,12.85,"36-50","Long (>90 min)","March"],[243,"10-02-2026","13:00","Kukatpally Charge Hub","Scooter","Personal",54,"Male",12.23,66,172.0,"Wallet","Tuesday",13,"No",0.185,14.06,"51+","Medium (46-90 min)","February"],[244,"24-01-2026","15:00","Ameerpet Charge Point","Car","Personal",26,"Male",34.85,117,511.58,"Card","Saturday",15,"No",0.298,14.68,"26-35","Long (>90 min)","January"],[245,"01-02-2026","18:00","Secunderabad Central","Car","Personal",53,"Male",42.25,90,636.7,"Cash","Sunday",18,"Yes",0.469,15.07,"51+","Medium (46-90 min)","February"],[246,"06-02-2026","15:00","Hitech City EV","Scooter","Office Commute",27,"Female",17.48,72,245.43,"Wallet","Friday",15,"No",0.243,14.04,"26-35","Medium (46-90 min)","February"],[247,"11-01-2026","12:00","Ameerpet Charge Point","Bike","Ride Sharing",29,"Male",14.51,32,188.69,"Card","Sunday",12,"No",0.453,13.0,"26-35","Short (<=45 min)","January"],[248,"10-03-2026","11:00","Kukatpally Charge Hub","Car","Personal",44,"Male",29.55,132,428.07,"Wallet","Tuesday",11,"No",0.224,14.49,"36-50","Long (>90 min)","March"],[249,"19-02-2026","12:00","Ameerpet Charge Point","Scooter","Business",54,"Female",12.27,48,212.63,"Cash","Thursday",12,"No",0.256,17.33,"51+","Medium (46-90 min)","February"],[250,"18-01-2026","18:00","LB Nagar EV Station","Car","Personal",49,"Male",21.52,91,278.11,"UPI","Sunday",18,"Yes",0.236,12.92,"36-50","Long (>90 min)","January"],[251,"13-01-2026","14:00","Secunderabad Central","Car","Office Commute",51,"Male",39.51,55,487.79,"Card","Tuesday",14,"No",0.718,12.35,"51+","Medium (46-90 min)","January"],[252,"21-01-2026","21:00","Hitech City EV","Bike","Personal",52,"Male",9.6,86,127.12,"UPI","Wednesday",21,"Yes",0.112,13.24,"51+","Medium (46-90 min)","January"],[253,"17-01-2026","16:00","Ameerpet Charge Point","Scooter","Personal",38,"Male",9.19,88,149.49,"Card","Saturday",16,"No",0.104,16.27,"36-50","Medium (46-90 min)","January"],[254,"19-01-2026","10:00","LB Nagar EV Station","Bike","Personal",29,"Male",14.38,80,220.01,"UPI","Monday",10,"No",0.18,15.3,"26-35","Medium (46-90 min)","January"],[255,"22-03-2026","16:00","LB Nagar EV Station","Bike","Office Commute",36,"Male",3.65,32,60.4,"Card","Sunday",16,"No",0.114,16.55,"36-50","Short (<=45 min)","March"],[256,"24-02-2026","13:00","Secunderabad Central","Scooter","Personal",34,"Female",6.86,98,99.11,"Wallet","Tuesday",13,"No",0.07,14.45,"26-35","Long (>90 min)","February"],[257,"16-02-2026","17:00","Uppal EV Hub","Bike","Office Commute",34,"Female",21.16,47,284.5,"Wallet","Monday",17,"Yes",0.45,13.45,"26-35","Medium (46-90 min)","February"],[258,"07-02-2026","12:00","Kukatpally Charge Hub","Scooter","Business",33,"Female",21.46,94,261.44,"Wallet","Saturday",12,"No",0.228,12.18,"26-35","Long (>90 min)","February"],[259,"23-02-2026","14:00","Hitech City EV","Bike","Ride Sharing",41,"Female",15.24,64,255.51,"Wallet","Monday",14,"No",0.238,16.77,"36-50","Medium (46-90 min)","February"],[260,"19-01-2026","11:00","LB Nagar EV Station","Car","Office Commute",18,"Male",14.96,101,185.76,"UPI","Monday",11,"No",0.148,12.42,"18-25","Long (>90 min)","January"],[261,"08-01-2026","17:00","Hitech City EV","Bike","Delivery",40,"Male",17.56,30,253.6,"Card","Thursday",17,"Yes",0.585,14.44,"36-50","Short (<=45 min)","January"],[262,"16-03-2026","13:00","Kukatpally Charge Hub","Scooter","Delivery",36,"Male",18.36,47,228.74,"Wallet","Monday",13,"No",0.391,12.46,"36-50","Medium (46-90 min)","March"],[263,"03-02-2026","17:00","Ameerpet Charge Point","Car","Delivery",48,"Male",13.66,64,229.73,"Card","Tuesday",17,"Yes",0.213,16.82,"36-50","Medium (46-90 min)","February"],[264,"24-02-2026","19:00","Uppal EV Hub","Scooter","Personal",47,"Other",12.05,70,170.5,"UPI","Tuesday",19,"Yes",0.172,14.15,"36-50","Medium (46-90 min)","February"],[265,"25-01-2026","10:00","LB Nagar EV Station","Car","Personal",53,"Female",28.6,42,460.37,"Card","Sunday",10,"No",0.681,16.1,"51+","Short (<=45 min)","January"],[266,"19-02-2026","16:00","LB Nagar EV Station","Car","Personal",21,"Male",38.53,116,525.11,"Wallet","Thursday",16,"No",0.332,13.63,"18-25","Long (>90 min)","February"],[267,"31-01-2026","12:00","Secunderabad Central","Scooter","Office Commute",32,"Male",14.96,39,249.83,"Card","Saturday",12,"No",0.384,16.7,"26-35","Short (<=45 min)","January"],[268,"27-03-2026","16:00","Uppal EV Hub","Scooter","Office Commute",46,"Female",18.95,87,242.14,"UPI","Friday",16,"No",0.218,12.78,"36-50","Medium (46-90 min)","March"],[269,"27-01-2026","18:00","Secunderabad Central","Bike","Personal",23,"Male",20.24,97,253.68,"Card","Tuesday",18,"Yes",0.209,12.53,"18-25","Long (>90 min)","January"],[270,"28-03-2026","14:00","Ameerpet Charge Point","Scooter","Office Commute",38,"Female",15.02,74,267.33,"Cash","Saturday",14,"No",0.203,17.8,"36-50","Medium (46-90 min)","March"],[271,"11-01-2026","20:00","Kukatpally Charge Hub","Car","Personal",36,"Female",21.84,40,309.2,"Cash","Sunday",20,"Yes",0.546,14.16,"36-50","Short (<=45 min)","January"],[272,"28-01-2026","18:00","LB Nagar EV Station","Bike","Delivery",24,"Female",5.11,56,86.5,"Wallet","Wednesday",18,"Yes",0.091,16.93,"18-25","Medium (46-90 min)","January"],[273,"02-01-2026","11:00","LB Nagar EV Station","Bike","Office Commute",40,"Male",11.97,47,153.49,"Wallet","Friday",11,"No",0.255,12.82,"36-50","Medium (46-90 min)","January"],[274,"05-02-2026","16:00","Kukatpally Charge Hub","Scooter","Delivery",18,"Female",15.25,46,216.68,"UPI","Thursday",16,"No",0.332,14.21,"18-25","Medium (46-90 min)","February"],[275,"18-02-2026","10:00","Kukatpally Charge Hub","Bike","Delivery",30,"Male",8.08,50,97.95,"Cash","Wednesday",10,"No",0.162,12.12,"26-35","Medium (46-90 min)","February"],[276,"14-01-2026","13:00","Uppal EV Hub","Bike","Business",41,"Female",10.68,90,130.85,"Card","Wednesday",13,"No",0.119,12.25,"36-50","Medium (46-90 min)","January"],[277,"06-03-2026","12:00","Hitech City EV","Car","Business",44,"Male",37.51,43,536.17,"UPI","Friday",12,"No",0.872,14.29,"36-50","Short (<=45 min)","March"],[278,"03-02-2026","11:00","Uppal EV Hub","Scooter","Delivery",24,"Male",9.31,52,111.79,"Wallet","Tuesday",11,"No",0.179,12.01,"18-25","Medium (46-90 min)","February"],[279,"18-03-2026","21:00","Secunderabad Central","Car","Ride Sharing",40,"Female",12.78,83,183.86,"Cash","Wednesday",21,"Yes",0.154,14.39,"36-50","Medium (46-90 min)","March"],[280,"08-03-2026","16:00","Kukatpally Charge Hub","Car","Delivery",40,"Female",31.91,96,572.48,"Wallet","Sunday",16,"No",0.332,17.94,"36-50","Long (>90 min)","March"],[281,"05-01-2026","14:00","Hitech City EV","Bike","Delivery",34,"Male",15.25,39,195.85,"Card","Monday",14,"No",0.391,12.84,"26-35","Short (<=45 min)","January"],[282,"25-01-2026","17:00","Kukatpally Charge Hub","Bike","Personal",21,"Male",5.79,75,78.54,"UPI","Sunday",17,"Yes",0.077,13.56,"18-25","Medium (46-90 min)","January"],[283,"16-02-2026","19:00","Uppal EV Hub","Scooter","Delivery",43,"Male",11.93,25,188.32,"Wallet","Monday",19,"Yes",0.477,15.79,"36-50","Short (<=45 min)","February"],[284,"23-02-2026","13:00","Kukatpally Charge Hub","Scooter","Business",22,"Female",17.46,94,289.24,"Card","Monday",13,"No",0.186,16.57,"18-25","Long (>90 min)","February"],[285,"15-03-2026","11:00","LB Nagar EV Station","Bike","Personal",50,"Male",13.66,99,207.08,"Wallet","Sunday",11,"No",0.138,15.16,"36-50","Long (>90 min)","March"],[286,"28-01-2026","15:00","Hitech City EV","Scooter","Business",43,"Male",15.09,41,222.7,"Card","Wednesday",15,"No",0.368,14.76,"36-50","Short (<=45 min)","January"],[287,"19-01-2026","11:00","LB Nagar EV Station","Scooter","Office Commute",46,"Female",3.25,95,57.68,"UPI","Monday",11,"No",0.034,17.75,"36-50","Long (>90 min)","January"],[288,"21-03-2026","21:00","LB Nagar EV Station","Car","Delivery",47,"Female",17.34,104,224.94,"Cash","Saturday",21,"Yes",0.167,12.97,"36-50","Long (>90 min)","March"],[289,"27-03-2026","18:00","Hitech City EV","Bike","Office Commute",45,"Male",18.87,72,251.62,"Cash","Friday",18,"Yes",0.262,13.33,"36-50","Medium (46-90 min)","March"],[290,"07-03-2026","14:00","Secunderabad Central","Car","Office Commute",20,"Female",20.38,35,354.71,"Card","Saturday",14,"No",0.582,17.4,"18-25","Short (<=45 min)","March"],[291,"27-01-2026","20:00","Uppal EV Hub","Bike","Delivery",37,"Female",12.74,93,225.6,"Wallet","Tuesday",20,"Yes",0.137,17.71,"36-50","Long (>90 min)","January"],[292,"31-03-2026","13:00","Hitech City EV","Car","Personal",35,"Female",20.28,60,266.71,"UPI","Tuesday",13,"No",0.338,13.15,"26-35","Medium (46-90 min)","March"],[293,"20-01-2026","10:00","Uppal EV Hub","Bike","Office Commute",18,"Male",7.2,90,98.55,"UPI","Tuesday",10,"No",0.08,13.69,"18-25","Medium (46-90 min)","January"],[294,"09-03-2026","15:00","Secunderabad Central","Scooter","Office Commute",36,"Male",14.02,57,244.29,"Card","Monday",15,"No",0.246,17.42,"36-50","Medium (46-90 min)","March"],[295,"09-02-2026","13:00","Hitech City EV","Car","Personal",46,"Male",39.16,66,609.51,"Card","Monday",13,"No",0.593,15.56,"36-50","Medium (46-90 min)","February"],[296,"28-01-2026","15:00","Secunderabad Central","Scooter","Personal",20,"Male",8.61,87,105.78,"Cash","Wednesday",15,"No",0.099,12.29,"18-25","Medium (46-90 min)","January"],[297,"24-01-2026","13:00","Uppal EV Hub","Car","Personal",40,"Female",29.02,76,443.38,"UPI","Saturday",13,"No",0.382,15.28,"36-50","Medium (46-90 min)","January"],[298,"26-02-2026","15:00","Uppal EV Hub","Scooter","Business",24,"Male",9.88,25,144.51,"Cash","Thursday",15,"No",0.395,14.63,"18-25","Short (<=45 min)","February"],[299,"20-02-2026","09:00","Secunderabad Central","Scooter","Delivery",22,"Female",8.89,70,154.5,"UPI","Friday",9,"No",0.127,17.38,"18-25","Medium (46-90 min)","February"],[300,"25-01-2026","12:00","Secunderabad Central","Scooter","Business",53,"Other",5.38,81,77.28,"UPI","Sunday",12,"No",0.066,14.36,"51+","Medium (46-90 min)","January"]]};
+
+const NUMERIC = ["Session_ID","User_Age","Energy_Consumed_kWh","Charging_Duration_Min",
+  "Charging_Cost_INR","Hour","Energy_per_Min_kWh","Cost_per_kWh_INR"];
+
+let COLS = BUILTIN.cols.slice();
+let DATA = BUILTIN.rows.map(r => { const o = {}; COLS.forEach((c,i)=>o[c]=r[i]); return o; });
+
+const FILTER_FIELDS = ["Charging_Station","Vehicle_Type","Purpose","Payment_Method",
+  "Session_Month","Peak_Hour","User_Gender"];
+const FILTER_LABEL = {Charging_Station:"Station",Vehicle_Type:"Vehicle",Purpose:"Purpose",
+  Payment_Method:"Payment",Session_Month:"Month",Peak_Hour:"Peak hour",User_Gender:"Gender"};
+
+let filters = {};
+const PALETTE = ["#17E5A1","#4C9BFF","#FFB23F","#A77BFF","#FF5F87","#38D6D6","#F0E14A"];
+
+/* --------------------------------------------------------------------
+   2. HELPERS
+   ------------------------------------------------------------------ */
+const $ = s => document.querySelector(s);
+const uniq = f => [...new Set(DATA.map(r => r[f]))].filter(v => v !== undefined && v !== null && v !== "").sort();
+const sum = (a,f) => a.reduce((t,r)=>t+(+r[f]||0),0);
+const avg = (a,f) => a.length ? sum(a,f)/a.length : 0;
+const inr = n => "\u20B9" + Math.round(n).toLocaleString("en-IN");
+const inr1 = n => "\u20B9" + n.toLocaleString("en-IN",{maximumFractionDigits:1});
+const num = (n,d=1) => (+n).toLocaleString("en-IN",{maximumFractionDigits:d});
+
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove("on"), 2800);
+}
+function countBy(rows, field){
+  const m = new Map();
+  rows.forEach(r => m.set(r[field], (m.get(r[field])||0)+1));
+  return m;
+}
+function aggBy(rows, field, valField){
+  const m = new Map();
+  rows.forEach(r => m.set(r[field], (m.get(r[field])||0) + (+r[valField]||0)));
+  return m;
+}
+function filtered(){
+  return DATA.filter(r => FILTER_FIELDS.every(f => {
+    const sel = filters[f];
+    return !sel || sel.size === 0 || sel.has(String(r[f]));
+  }));
+}
+
+/* --------------------------------------------------------------------
+   3. LINEAR ALGEBRA + RIDGE REGRESSION (trained in browser)
+   ------------------------------------------------------------------ */
+function solve(A, b){                       // Gaussian elimination, partial pivoting
+  const n = b.length;
+  const M = A.map((row,i) => row.concat([b[i]]));
+  for (let c = 0; c < n; c++){
+    let p = c;
+    for (let r = c+1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if (Math.abs(M[c][c]) < 1e-12) M[c][c] = 1e-12;
+    for (let r = c+1; r < n; r++){
+      const f = M[r][c] / M[c][c];
+      if (!f) continue;
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  const x = new Array(n).fill(0);
+  for (let r = n-1; r >= 0; r--){
+    let s = M[r][n];
+    for (let k = r+1; k < n; k++) s -= M[r][k] * x[k];
+    x[r] = s / M[r][r];
+  }
+  return x;
+}
+
+const MODEL_NUMERIC = ["Charging_Duration_Min","User_Age","Hour"];
+const MODEL_CATEGORICAL = ["Vehicle_Type","Purpose","Charging_Station","Payment_Method","User_Gender"];
+const TARGET = "Charging_Cost_INR";
+const PRETTY = {
+  Charging_Duration_Min:"Session length", User_Age:"User age", Hour:"Hour of day",
+  Vehicle_Type:"Vehicle", Purpose:"Purpose", Charging_Station:"Station",
+  Payment_Method:"Payment", User_Gender:"Gender", Peak_Hour:"Peak hour"
+};
+
+let MODEL = null;
+
+function buildSchema(rows){
+  const levels = {};
+  MODEL_CATEGORICAL.forEach(f => {
+    levels[f] = [...new Set(rows.map(r => String(r[f])))].sort();
+  });
+  const names = [], spec = [];
+  MODEL_NUMERIC.forEach(f => { names.push(PRETTY[f]); spec.push({kind:"num", field:f}); });
+  MODEL_CATEGORICAL.forEach(f => {
+    levels[f].slice(1).forEach(lv => {          // drop first level as baseline
+      names.push(PRETTY[f] + ": " + lv);
+      spec.push({kind:"cat", field:f, level:lv});
+    });
+  });
+  names.push("Peak hour (17:00\u201321:00)"); spec.push({kind:"peak"});
+  const carLike = levels.Vehicle_Type.filter(v => v !== levels.Vehicle_Type[0]);
+  carLike.forEach(v => {
+    names.push("Length \u00D7 " + v);
+    spec.push({kind:"inter", field:"Vehicle_Type", level:v, with:"Charging_Duration_Min"});
+  });
+  return {levels, names, spec};
+}
+
+function encodeRow(r, schema){
+  return schema.spec.map(s => {
+    if (s.kind === "num")   return +r[s.field] || 0;
+    if (s.kind === "cat")   return String(r[s.field]) === s.level ? 1 : 0;
+    if (s.kind === "peak")  { const h = +r.Hour; return (h >= 17 && h <= 21) ? 1 : 0; }
+    if (s.kind === "inter") return (String(r[s.field]) === s.level) ? (+r[s.with] || 0) : 0;
+    return 0;
+  });
+}
+
+function trainModel(rows){
+  const clean = rows.filter(r => isFinite(+r[TARGET]) && r[TARGET] !== "" && r[TARGET] !== null);
+  if (clean.length < 40) return null;
+
+  const schema = buildSchema(clean);
+  const X = clean.map(r => encodeRow(r, schema));
+  const y = clean.map(r => +r[TARGET]);
+  const p = schema.spec.length;
+
+  // deterministic shuffle (LCG, fixed seed) -> reproducible split on every load
+  let seed = 20260918;
+  const idx = clean.map((_,i)=>i);
+  for (let i = idx.length - 1; i > 0; i--){
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    const j = seed % (i + 1);
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  const cut = Math.round(idx.length * 0.8);
+  const tr = idx.slice(0, cut), te = idx.slice(cut);
+
+  // standardise on the training split only
+  const mu = new Array(p).fill(0), sd = new Array(p).fill(0);
+  for (let c = 0; c < p; c++){
+    let m = 0; tr.forEach(i => m += X[i][c]); m /= tr.length;
+    let v = 0; tr.forEach(i => v += (X[i][c]-m)**2); v = Math.sqrt(v/tr.length) || 1e-9;
+    mu[c] = m; sd[c] = v;
+  }
+  const z = i => X[i].map((v,c) => (v - mu[c]) / sd[c]);
+
+  // ridge on centred y, intercept kept unpenalised
+  let ybar = 0; tr.forEach(i => ybar += y[i]); ybar /= tr.length;
+  const lambda = 5;
+  const A = Array.from({length:p}, () => new Array(p).fill(0));
+  const b = new Array(p).fill(0);
+  tr.forEach(i => {
+    const zi = z(i), dy = y[i] - ybar;
+    for (let a = 0; a < p; a++){
+      b[a] += zi[a] * dy;
+      for (let c = a; c < p; c++) A[a][c] += zi[a] * zi[c];
+    }
+  });
+  for (let a = 0; a < p; a++){ for (let c = 0; c < a; c++) A[a][c] = A[c][a]; A[a][a] += lambda; }
+  const w = solve(A, b);
+
+  const predIdx = i => ybar + z(i).reduce((s,v,c) => s + v*w[c], 0);
+  const score = set => {
+    let ss = 0, sa = 0, n = set.length, my = 0;
+    set.forEach(i => my += y[i]); my /= n;
+    let tss = 0;
+    set.forEach(i => { const e = y[i] - predIdx(i); ss += e*e; sa += Math.abs(e); tss += (y[i]-my)**2; });
+    return { r2: 1 - ss/tss, rmse: Math.sqrt(ss/n), mae: sa/n, n };
+  };
+
+  return {
+    schema, w, mu, sd, ybar, lambda, rows: clean, y,
+    train: score(tr), test: score(te),
+    testPairs: te.map(i => ({a: y[i], p: predIdx(i)})),
+    predict(rec){
+      const raw = encodeRow(rec, schema);
+      const zz = raw.map((v,c) => (v - mu[c]) / sd[c]);
+      const parts = zz.map((v,c) => v * w[c]);
+      return { value: ybar + parts.reduce((a,b)=>a+b,0), parts, base: ybar };
+    }
+  };
+}
+
+/* --------------------------------------------------------------------
+   4. CHART DEFAULTS
+   ------------------------------------------------------------------ */
+Chart.defaults.color = "#8CA0C4";
+Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+Chart.defaults.font.size = 11;
+Chart.defaults.borderColor = "rgba(34,50,82,.75)";
+Chart.defaults.plugins.legend.labels.boxWidth = 10;
+Chart.defaults.plugins.legend.labels.boxHeight = 10;
+Chart.defaults.plugins.legend.labels.usePointStyle = true;
+Chart.defaults.plugins.tooltip.backgroundColor = "#16233F";
+Chart.defaults.plugins.tooltip.borderColor = "#223252";
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.maintainAspectRatio = false;
+
+const charts = {};
+function draw(id, cfg){
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), cfg);
+}
+const grid = { grid:{color:"rgba(34,50,82,.5)"}, ticks:{color:"#5C6F93"} };
+const gridNo = { grid:{display:false}, ticks:{color:"#5C6F93"} };
+
+/* --------------------------------------------------------------------
+   5. SLICERS
+   ------------------------------------------------------------------ */
+function buildSlicers(){
+  const host = $("#slicer-grid"); host.innerHTML = "";
+  filters = {};
+  FILTER_FIELDS.filter(f => COLS.includes(f)).forEach(f => {
+    filters[f] = new Set();
+    const vals = uniq(f);
+    const div = document.createElement("div");
+    div.className = "slicer";
+    div.innerHTML = '<label>' + (FILTER_LABEL[f] || f) + '</label><div class="chips"></div>';
+    const chips = div.querySelector(".chips");
+    vals.forEach(v => {
+      const b = document.createElement("button");
+      b.className = "chip"; b.type = "button"; b.textContent = v;
+      b.setAttribute("aria-pressed","false");
+      b.onclick = () => {
+        const s = filters[f], key = String(v);
+        if (s.has(key)) s.delete(key); else s.add(key);
+        b.setAttribute("aria-pressed", s.has(key) ? "true" : "false");
+        refresh();
+      };
+      chips.appendChild(b);
+    });
+    host.appendChild(div);
+  });
+}
+$("#reset-filters").onclick = () => {
+  Object.values(filters).forEach(s => s.clear());
+  document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed","false"));
+  refresh();
+  toast("Filters cleared");
+};
+
+/* --------------------------------------------------------------------
+   6. KPI CARDS
+   ------------------------------------------------------------------ */
+function renderKPIs(rows){
+  const n = rows.length;
+  const energy = sum(rows,"Energy_Consumed_kWh");
+  const revenue = sum(rows,"Charging_Cost_INR");
+  const peak = rows.filter(r => String(r.Peak_Hour) === "Yes").length;
+  const stations = new Set(rows.map(r => r.Charging_Station)).size;
+  const cards = [
+    {k:"var(--charge)", lab:"Charging sessions", val:n.toLocaleString("en-IN"),
+     sub: stations + " station" + (stations===1?"":"s") + " in scope"},
+    {k:"var(--volt)", lab:"Revenue", val:inr(revenue),
+     sub:"Average bill " + inr(avg(rows,"Charging_Cost_INR"))},
+    {k:"var(--charge)", lab:"Energy delivered", val:num(energy,0) + " kWh",
+     sub: num(avg(rows,"Energy_Consumed_kWh"),1) + " kWh per session"},
+    {k:"var(--grape)", lab:"Average session length", val:num(avg(rows,"Charging_Duration_Min"),0) + " min",
+     sub: num(avg(rows,"Energy_per_Min_kWh"),3) + " kWh per minute"},
+    {k:"var(--peak)", lab:"Peak-hour sessions", val: n ? num(peak/n*100,1) + "%" : "\u2014",
+     sub: peak + " sessions between 17:00 and 21:00"},
+    {k:"var(--rose)", lab:"Average tariff", val: inr1(avg(rows,"Cost_per_kWh_INR")) + "/kWh",
+     sub:"Blended across all sessions in scope"}
+  ];
+  $("#kpis").innerHTML = cards.map(c =>
+    '<div class="kpi" style="--k:'+c.k+'"><div class="lab">'+c.lab+'</div>'+
+    '<div class="val">'+c.val+'</div><div class="sub">'+c.sub+'</div></div>').join("");
+}
+
+/* --------------------------------------------------------------------
+   7. DASHBOARD CHARTS
+   ------------------------------------------------------------------ */
+const MONTH_ORDER = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+const DOW_ORDER = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+function renderCharts(rows){
+  /* hide cards whose source column is absent from the loaded file */
+  [["ch-month","Session_Month"],["ch-age","User_Age_Group"],
+   ["ch-dur","Charging_Duration_Group"],["ch-dow","Day_of_Week"]].forEach(([id,col]) => {
+    const card = document.getElementById(id).closest(".card");
+    card.style.display = COLS.includes(col) ? "" : "none";
+  });
+
+  /* stations: sessions + revenue */
+  const stCount = countBy(rows,"Charging_Station");
+  const stRev = aggBy(rows,"Charging_Station","Charging_Cost_INR");
+  const stations = [...stCount.keys()].sort((a,b)=>stCount.get(b)-stCount.get(a));
+  draw("ch-station",{ type:"bar",
+    data:{ labels:stations, datasets:[
+      {label:"Sessions", data:stations.map(s=>stCount.get(s)), backgroundColor:"#17E5A1",
+       borderRadius:5, yAxisID:"y", maxBarThickness:34},
+      {label:"Revenue (\u20B9)", data:stations.map(s=>Math.round(stRev.get(s)||0)), type:"line",
+       borderColor:"#4C9BFF", backgroundColor:"#4C9BFF", tension:.35, yAxisID:"y1",
+       pointRadius:4, borderWidth:2}
+    ]},
+    options:{ scales:{ x:{...gridNo, ticks:{...gridNo.ticks, maxRotation:38, minRotation:0, autoSkip:false, font:{size:10}}},
+      y:{...grid, beginAtZero:true, title:{display:true,text:"Sessions"}},
+      y1:{position:"right", beginAtZero:true, grid:{display:false}, ticks:{color:"#5C6F93"},
+          title:{display:true,text:"Revenue"}} } } });
+
+  /* energy by vehicle */
+  const veh = aggBy(rows,"Vehicle_Type","Energy_Consumed_kWh");
+  const vk = [...veh.keys()].sort();
+  draw("ch-vehicle",{ type:"doughnut",
+    data:{ labels:vk, datasets:[{ data:vk.map(k=>+veh.get(k).toFixed(1)),
+      backgroundColor:PALETTE, borderColor:"#101B33", borderWidth:3 }]},
+    options:{ cutout:"58%", plugins:{ legend:{position:"bottom"},
+      tooltip:{ callbacks:{ label: c => c.label + ": " + num(c.parsed,1) + " kWh" } } } } });
+
+  /* hour of day */
+  const hrs = Array.from({length:17},(_,i)=>i+6);
+  const hc = countBy(rows,"Hour");
+  draw("ch-hour",{ type:"bar",
+    data:{ labels:hrs.map(h=>String(h).padStart(2,"0")+":00"),
+      datasets:[{ label:"Sessions", data:hrs.map(h=>hc.get(h)||0), borderRadius:4,
+        backgroundColor:hrs.map(h => (h>=17&&h<=21) ? "#FFB23F" : "#4C9BFF") }]},
+    options:{ plugins:{legend:{display:false}}, scales:{x:gridNo, y:{...grid, beginAtZero:true}} } });
+
+  /* revenue by month */
+  if (COLS.includes("Session_Month")) {
+  const mv = aggBy(rows,"Session_Month","Charging_Cost_INR");
+  const mk = [...mv.keys()].sort((a,b)=>MONTH_ORDER.indexOf(a)-MONTH_ORDER.indexOf(b));
+  draw("ch-month",{ type:"line",
+    data:{ labels:mk, datasets:[{ label:"Revenue", data:mk.map(k=>Math.round(mv.get(k))),
+      borderColor:"#17E5A1", backgroundColor:"rgba(23,229,161,.16)", fill:true, tension:.36,
+      pointRadius:5, pointBackgroundColor:"#17E5A1", borderWidth:2 }]},
+    options:{ plugins:{legend:{display:false}}, scales:{x:gridNo, y:{...grid, beginAtZero:true}} } });
+
+  }
+
+  /* purpose */
+  const pu = countBy(rows,"Purpose");
+  const pk = [...pu.keys()].sort((a,b)=>pu.get(b)-pu.get(a));
+  draw("ch-purpose",{ type:"bar",
+    data:{ labels:pk, datasets:[{ data:pk.map(k=>pu.get(k)), backgroundColor:"#A77BFF",
+      borderRadius:4, maxBarThickness:20 }]},
+    options:{ indexAxis:"y", plugins:{legend:{display:false}},
+      scales:{ x:{...grid, beginAtZero:true}, y:gridNo } } });
+
+  /* payment */
+  const pay = aggBy(rows,"Payment_Method","Charging_Cost_INR");
+  const payk = [...pay.keys()].sort();
+  draw("ch-pay",{ type:"doughnut",
+    data:{ labels:payk, datasets:[{ data:payk.map(k=>Math.round(pay.get(k))),
+      backgroundColor:["#4C9BFF","#17E5A1","#FFB23F","#FF5F87","#A77BFF"],
+      borderColor:"#101B33", borderWidth:3 }]},
+    options:{ cutout:"58%", plugins:{ legend:{position:"bottom"},
+      tooltip:{ callbacks:{ label: c => c.label + ": " + inr(c.parsed) } } } } });
+
+  /* age group x gender */
+  if (COLS.includes("User_Age_Group")) {
+  const ages = [...new Set(rows.map(r=>r.User_Age_Group))].sort();
+  const gens = [...new Set(rows.map(r=>r.User_Gender))].sort();
+  draw("ch-age",{ type:"bar",
+    data:{ labels:ages, datasets: gens.map((g,i)=>({ label:g,
+      data:ages.map(a => rows.filter(r=>r.User_Age_Group===a && r.User_Gender===g).length),
+      backgroundColor:PALETTE[i%PALETTE.length], borderRadius:4, maxBarThickness:26 }))},
+    options:{ plugins:{legend:{position:"bottom"}},
+      scales:{ x:{...gridNo, stacked:true}, y:{...grid, stacked:true, beginAtZero:true} } } });
+
+  }
+
+  /* scatter duration vs energy */
+  const vtypes = [...new Set(rows.map(r=>r.Vehicle_Type))].sort();
+  draw("ch-scatter",{ type:"scatter",
+    data:{ datasets: vtypes.map((v,i)=>({ label:v,
+      data: rows.filter(r=>r.Vehicle_Type===v).map(r=>({x:+r.Charging_Duration_Min, y:+r.Energy_Consumed_kWh})),
+      backgroundColor:PALETTE[i%PALETTE.length], pointRadius:3.6, pointHoverRadius:6 }))},
+    options:{ plugins:{ legend:{position:"bottom"},
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ": " + c.parsed.x + " min, " + num(c.parsed.y,1) + " kWh" } } },
+      scales:{ x:{...grid, title:{display:true,text:"Minutes"}},
+               y:{...grid, title:{display:true,text:"kWh"}} } } });
+
+  /* duration band */
+  if (COLS.includes("Charging_Duration_Group")) {
+  const db = countBy(rows,"Charging_Duration_Group");
+  const dbk = [...db.keys()].sort((a,b)=>db.get(b)-db.get(a));
+  draw("ch-dur",{ type:"bar",
+    data:{ labels:dbk, datasets:[{ data:dbk.map(k=>db.get(k)), backgroundColor:"#38D6D6",
+      borderRadius:5, maxBarThickness:52 }]},
+    options:{ plugins:{legend:{display:false}}, scales:{x:{...gridNo, ticks:{...gridNo.ticks,font:{size:10}}}, y:{...grid, beginAtZero:true}} } });
+
+  }
+
+  /* day of week */
+  if (COLS.includes("Day_of_Week")) {
+  const dc = countBy(rows,"Day_of_Week");
+  const dk = DOW_ORDER.filter(d => dc.has(d));
+  draw("ch-dow",{ type:"bar",
+    data:{ labels:dk, datasets:[
+      { label:"Sessions", data:dk.map(d=>dc.get(d)), backgroundColor:"#4C9BFF", borderRadius:5, yAxisID:"y", maxBarThickness:42 },
+      { label:"Average bill (\u20B9)", type:"line", yAxisID:"y1",
+        data:dk.map(d => Math.round(avg(rows.filter(r=>r.Day_of_Week===d),"Charging_Cost_INR"))),
+        borderColor:"#FFB23F", backgroundColor:"#FFB23F", tension:.35, pointRadius:4, borderWidth:2 }
+    ]},
+    options:{ scales:{ x:gridNo, y:{...grid, beginAtZero:true},
+      y1:{position:"right", grid:{display:false}, ticks:{color:"#5C6F93"}, beginAtZero:true} } } });
+  }
+}
+
+/* --------------------------------------------------------------------
+   8. PREDICTION
+   ------------------------------------------------------------------ */
+function buildPredictionForm(){
+  const host = $("#pred-form"); host.innerHTML = "";
+  const sel = (f) => {
+    const vals = uniq(f);
+    return '<div class="field"><label>'+(PRETTY[f]||f)+'</label><select id="in-'+f+'">' +
+      vals.map(v => '<option>'+v+'</option>').join("") + '</select></div>';
+  };
+  const durs = DATA.map(r=>+r.Charging_Duration_Min);
+  const ages = DATA.map(r=>+r.User_Age);
+  host.innerHTML =
+    sel("Vehicle_Type") + sel("Purpose") + sel("Charging_Station") + sel("Payment_Method") + sel("User_Gender") +
+    '<div class="field"><label>Session length (minutes)</label>' +
+      '<input type="range" id="in-Charging_Duration_Min" min="'+Math.min(...durs)+'" max="'+Math.max(...durs)+
+      '" value="'+Math.round(durs.reduce((a,b)=>a+b,0)/durs.length)+'">' +
+      '<div class="rangerow"><span>'+Math.min(...durs)+'</span><b id="lbl-dur" style="color:var(--charge)"></b><span>'+Math.max(...durs)+'</span></div></div>' +
+    '<div class="field"><label>User age</label>' +
+      '<input type="range" id="in-User_Age" min="'+Math.min(...ages)+'" max="'+Math.max(...ages)+
+      '" value="'+Math.round(ages.reduce((a,b)=>a+b,0)/ages.length)+'">' +
+      '<div class="rangerow"><span>'+Math.min(...ages)+'</span><b id="lbl-age" style="color:var(--charge)"></b><span>'+Math.max(...ages)+'</span></div></div>' +
+    '<div class="field"><label>Start hour</label><select id="in-Hour">' +
+      Array.from({length:17},(_,i)=>i+6).map(h => '<option value="'+h+'"'+(h===18?' selected':'')+'>' +
+        String(h).padStart(2,"0")+':00' + ((h>=17&&h<=21)?' \u00B7 peak':'') + '</option>').join("") +
+      '</select></div>';
+
+  const syncLabels = () => {
+    $("#lbl-dur").textContent = $("#in-Charging_Duration_Min").value + " min";
+    $("#lbl-age").textContent = $("#in-User_Age").value + " yrs";
+  };
+  $("#in-Charging_Duration_Min").oninput = syncLabels;
+  $("#in-User_Age").oninput = syncLabels;
+  syncLabels();
+}
+
+function readForm(){
+  const rec = {};
+  MODEL_CATEGORICAL.forEach(f => rec[f] = $("#in-"+f).value);
+  rec.Charging_Duration_Min = +$("#in-Charging_Duration_Min").value;
+  rec.User_Age = +$("#in-User_Age").value;
+  rec.Hour = +$("#in-Hour").value;
+  return rec;
+}
+
+function runPrediction(){
+  if (!MODEL){ toast("No model available for this data"); return; }
+  const rec = readForm();
+  const out = MODEL.predict(rec);
+  const val = Math.max(0, out.value);
+  const rmse = MODEL.test.rmse;
+
+  $("#pred-money").textContent = inr(val);
+  $("#pred-range").textContent = "Typically between " + inr(Math.max(0,val-rmse)) + " and " + inr(val+rmse) +
+    " \u00B7 \u00B1" + inr(rmse) + " held-out error";
+
+  // position on the distribution of actual bills
+  const all = MODEL.rows.map(r => +r[TARGET]).sort((a,b)=>a-b);
+  const pct = all.filter(v => v < val).length / all.length;
+  $("#pred-mark").style.left = "calc(" + (pct*100).toFixed(1) + "% - 2px)";
+
+  let band, colour;
+  if (pct < .25){ band = "Low spend session"; colour = "#38D6D6"; }
+  else if (pct < .6){ band = "Typical session"; colour = "#17E5A1"; }
+  else if (pct < .85){ band = "High spend session"; colour = "#FFB23F"; }
+  else { band = "Top-tier session"; colour = "#FF5F87"; }
+  const b = $("#pred-band");
+  b.textContent = band + " \u00B7 " + Math.round(pct*100) + "th percentile";
+  b.style.background = colour + "26"; b.style.color = colour;
+
+  const fleetAvg = MODEL.ybar;
+  const diff = val - fleetAvg;
+  $("#pred-context").innerHTML = "That is " + (diff >= 0 ? "<b style='color:var(--peak)'>" + inr(Math.abs(diff)) +
+    " above</b>" : "<b style='color:var(--charge)'>" + inr(Math.abs(diff)) + " below</b>") +
+    " the average bill of " + inr(fleetAvg) + " across the training sessions.";
+
+  renderDrivers(out, rec);
+}
+
+function renderDrivers(out, rec){
+  const names = MODEL.schema.names;
+  const items = out.parts.map((v,i) => ({name:names[i], v}))
+    .filter(d => Math.abs(d.v) > 0.5)
+    .sort((a,b) => Math.abs(b.v) - Math.abs(a.v))
+    .slice(0, 8);
+  if (!items.length){
+    $("#drivers").innerHTML = '<p style="color:var(--ink-faint);font-size:12.5px;margin:0">This session sits almost exactly at the average, so no single input moves the estimate much.</p>';
+    return;
+  }
+  const max = Math.max(...items.map(d => Math.abs(d.v)));
+  $("#drivers").innerHTML = items.map(d => {
+    const w = Math.max(3, Math.abs(d.v)/max*100);
+    const up = d.v >= 0;
+    return '<div class="driver"><div><div>' + d.name + '</div>' +
+      '<div class="bar"><div class="fill" style="width:'+w+'%;background:'+(up?"#FFB23F":"#4C9BFF")+'"></div></div></div>' +
+      '<div class="amt ' + (up?"pos":"neg") + '">' + (up?"+":"\u2212") + inr(Math.abs(d.v)) + '</div></div>';
+  }).join("") +
+  '<p style="font-size:11.5px;color:var(--ink-faint);margin:12px 0 0">' +
+  'Amber pushes the bill up against an average session, blue pulls it down. ' +
+  'Values are this session\u2019s standardised inputs multiplied by the fitted weights.</p>';
+}
+
+$("#btn-predict").onclick = runPrediction;
+$("#btn-random").onclick = () => {
+  const r = DATA[Math.floor(Math.random()*DATA.length)];
+  MODEL_CATEGORICAL.forEach(f => { const el = $("#in-"+f); if ([...el.options].some(o=>o.value==r[f])) el.value = r[f]; });
+  $("#in-Charging_Duration_Min").value = r.Charging_Duration_Min;
+  $("#in-User_Age").value = r.User_Age;
+  $("#in-Hour").value = r.Hour;
+  $("#in-Charging_Duration_Min").dispatchEvent(new Event("input"));
+  runPrediction();
+  toast("Loaded session " + r.Session_ID + " \u00B7 actual bill " + inr(+r.Charging_Cost_INR));
+};
+
+/* --------------------------------------------------------------------
+   9. MODEL PERFORMANCE
+   ------------------------------------------------------------------ */
+function renderModel(){
+  if (!MODEL){
+    $("#metrics").innerHTML = '<p style="color:var(--ink-faint)">Not enough clean rows to fit a model.</p>';
+    return;
+  }
+  const t = MODEL.test, tr = MODEL.train;
+  const meanY = MODEL.ybar;
+  const cards = [
+    {lab:"R\u00B2 (held-out)", val:t.r2.toFixed(3), note:"Share of bill variance explained"},
+    {lab:"RMSE (held-out)", val:inr(t.rmse), note:"Root mean squared error"},
+    {lab:"MAE (held-out)", val:inr(t.mae), note:"Average absolute miss"},
+    {lab:"R\u00B2 (training)", val:tr.r2.toFixed(3), note:"Gap to held-out shows overfit"},
+    {lab:"RMSE (training)", val:inr(tr.rmse), note:"On " + tr.n + " fitted sessions"},
+    {lab:"Held-out sessions", val:String(t.n), note:"Never seen during fitting"}
+  ];
+  $("#metrics").innerHTML = cards.map(c =>
+    '<div class="metric"><div class="m-lab">'+c.lab+'</div><div class="m-val">'+c.val+
+    '</div><div class="m-note">'+c.note+'</div></div>').join("");
+
+  const errPct = t.mae / meanY * 100;
+  $("#model-note").innerHTML = "<b>How to read this.</b> Ridge regression, penalty \u03BB=" + MODEL.lambda +
+    ", " + MODEL.schema.spec.length + " encoded features, fitted on " + tr.n + " sessions and scored on " + t.n +
+    " it never saw. Average miss is about " + errPct.toFixed(0) + "% of the mean bill of " + inr(meanY) +
+    ". Energy_Consumed_kWh, Cost_per_kWh_INR and Energy_per_Min_kWh are excluded as inputs because they " +
+    "reconstruct the target arithmetically. Every figure here was computed when this page loaded.";
+
+  /* predicted vs actual */
+  const pairs = MODEL.testPairs;
+  const lo = 0, hi = Math.max(...pairs.flatMap(p=>[p.a,p.p])) * 1.05;
+  draw("ch-pva",{ type:"scatter",
+    data:{ datasets:[
+      { label:"Held-out sessions", data:pairs.map(p=>({x:p.a,y:p.p})),
+        backgroundColor:"#17E5A1", pointRadius:4, pointHoverRadius:7 },
+      { label:"Perfect estimate", type:"line", data:[{x:lo,y:lo},{x:hi,y:hi}],
+        borderColor:"#5C6F93", borderDash:[6,5], borderWidth:1.5, pointRadius:0 }
+    ]},
+    options:{ plugins:{legend:{position:"bottom"}},
+      scales:{ x:{...grid, title:{display:true,text:"Actual bill (\u20B9)"}},
+               y:{...grid, title:{display:true,text:"Predicted bill (\u20B9)"}} } } });
+
+  /* residual histogram */
+  const res = pairs.map(p => p.a - p.p);
+  const rmin = Math.min(...res), rmax = Math.max(...res), bins = 12;
+  const step = (rmax - rmin) / bins || 1;
+  const hist = new Array(bins).fill(0);
+  res.forEach(v => hist[Math.min(bins-1, Math.floor((v-rmin)/step))]++);
+  draw("ch-resid",{ type:"bar",
+    data:{ labels: hist.map((_,i)=>Math.round(rmin+i*step)),
+      datasets:[{ data:hist, backgroundColor: hist.map((_,i)=>
+        (rmin+(i+.5)*step) < 0 ? "#4C9BFF" : "#FFB23F"), borderRadius:3 }]},
+    options:{ plugins:{legend:{display:false},
+        tooltip:{callbacks:{title: c => "Residual near \u20B9" + c[0].label}}},
+      scales:{ x:{...gridNo, title:{display:true,text:"Actual minus predicted (\u20B9)"}},
+               y:{...grid, beginAtZero:true, title:{display:true,text:"Sessions"}} } } });
+
+  /* coefficients */
+  const coefs = MODEL.schema.names.map((n,i)=>({n, w:MODEL.w[i]}))
+    .sort((a,b)=>Math.abs(b.w)-Math.abs(a.w)).slice(0,16);
+  draw("ch-coef",{ type:"bar",
+    data:{ labels:coefs.map(c=>c.n), datasets:[{ data:coefs.map(c=>+c.w.toFixed(2)),
+      backgroundColor:coefs.map(c=>c.w>=0?"#FFB23F":"#4C9BFF"), borderRadius:4, maxBarThickness:17 }]},
+    options:{ indexAxis:"y", plugins:{legend:{display:false}},
+      scales:{ x:{...grid, title:{display:true,text:"Rupee effect of a one standard-deviation change"}},
+               y:{...gridNo, ticks:{...gridNo.ticks, font:{size:10.5}}} } } });
+}
+
+/* --------------------------------------------------------------------
+   10. DATA EXPLORER
+   ------------------------------------------------------------------ */
+let sortKey = "Session_ID", sortDir = 1, page = 1;
+
+function tableRows(){
+  const q = $("#tbl-search").value.trim().toLowerCase();
+  let rows = filtered();
+  if (q) rows = rows.filter(r => COLS.some(c => String(r[c]).toLowerCase().includes(q)));
+  rows = rows.slice().sort((a,b) => {
+    const x = a[sortKey], y = b[sortKey];
+    const nx = +x, ny = +y;
+    if (isFinite(nx) && isFinite(ny) && x !== "" && y !== "") return (nx-ny)*sortDir;
+    return String(x).localeCompare(String(y))*sortDir;
+  });
+  return rows;
+}
+function renderTable(){
+  const rows = tableRows();
+  const size = +$("#tbl-size").value;
+  const pages = Math.max(1, Math.ceil(rows.length/size));
+  page = Math.min(page, pages);
+  const slice = rows.slice((page-1)*size, page*size);
+
+  $("#tbl thead").innerHTML = "<tr>" + COLS.map(c =>
+    '<th data-col="'+c+'">' + c.replace(/_/g," ") + (sortKey===c ? (sortDir>0?" \u2191":" \u2193") : "") + '</th>').join("") + "</tr>";
+  $("#tbl thead").querySelectorAll("th").forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (sortKey === c) sortDir *= -1; else { sortKey = c; sortDir = 1; }
+    renderTable();
+  });
+  $("#tbl tbody").innerHTML = slice.map(r =>
+    "<tr>" + COLS.map(c => "<td>" + (r[c] ?? "") + "</td>").join("") + "</tr>").join("");
+  $("#tbl-count").textContent = rows.length + " matching record" + (rows.length===1?"":"s");
+  $("#pg-label").textContent = "Page " + page + " of " + pages;
+  $("#pg-prev").disabled = page <= 1;
+  $("#pg-next").disabled = page >= pages;
+}
+$("#tbl-search").oninput = () => { page = 1; renderTable(); };
+$("#tbl-size").onchange = () => { page = 1; renderTable(); };
+$("#pg-prev").onclick = () => { if (page > 1){ page--; renderTable(); } };
+$("#pg-next").onclick = () => { page++; renderTable(); };
+$("#btn-csv").onclick = () => {
+  const rows = tableRows();
+  const esc = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const csv = [COLS.join(",")].concat(rows.map(r => COLS.map(c => esc(r[c])).join(","))).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv;charset=utf-8"}));
+  a.download = "ev_sessions_filtered.csv"; a.click();
+  toast("Exported " + rows.length + " rows");
+};
+
+/* --------------------------------------------------------------------
+   11. FILE UPLOAD
+   ------------------------------------------------------------------ */
+const REQUIRED = ["Charging_Cost_INR","Charging_Duration_Min","Vehicle_Type","Purpose","Charging_Station","Hour","User_Age"];
+
+function ingest(rows, label){
+  if (!rows.length){ $("#load-status").textContent = "That file had no readable rows."; return; }
+  const cols = Object.keys(rows[0]);
+  const missing = REQUIRED.filter(c => !cols.includes(c));
+  if (missing.length){
+    $("#load-status").innerHTML = "<span style='color:var(--rose)'>Cannot use this file. Missing columns: " +
+      missing.join(", ") + "</span>";
+    return;
+  }
+  COLS = cols;
+  DATA = rows.map(r => { const o = {...r}; NUMERIC.forEach(c => { if (c in o && o[c] !== "" && o[c] !== null) o[c] = +o[c]; }); return o; });
+  bootData();
+  $("#load-status").innerHTML = "Loaded <b style='color:var(--charge)'>" + DATA.length +
+    "</b> rows and " + COLS.length + " columns from " + label + ". Model refitted.";
+  toast("Dashboard rebuilt from " + label);
+}
+
+function handleFile(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, {type:"array"});
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:""});
+      ingest(rows, file.name);
+    }catch(err){
+      $("#load-status").innerHTML = "<span style='color:var(--rose)'>Could not read that file: " + err.message + "</span>";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+$("#file-in").onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); };
+const drop = $("#drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+$("#btn-restore").onclick = () => {
+  COLS = BUILTIN.cols.slice();
+  DATA = BUILTIN.rows.map(r => { const o = {}; COLS.forEach((c,i)=>o[c]=r[i]); return o; });
+  bootData();
+  $("#load-status").textContent = "Built-in dataset restored.";
+  toast("Built-in dataset restored");
+};
+
+/* --------------------------------------------------------------------
+   12. ABOUT: PROFILE + INSIGHTS
+   ------------------------------------------------------------------ */
+function renderAbout(){
+  const numCols = COLS.filter(c => DATA.every(r => r[c] === "" || isFinite(+r[c])));
+  const catCols = COLS.filter(c => !numCols.includes(c));
+  let missing = 0;
+  DATA.forEach(r => COLS.forEach(c => { if (r[c] === "" || r[c] === null || r[c] === undefined) missing++; }));
+  const keys = new Set(); let dupes = 0;
+  DATA.forEach(r => { const k = COLS.map(c=>r[c]).join("\u0001"); if (keys.has(k)) dupes++; else keys.add(k); });
+
+  $("#profile").innerHTML = [
+    ["Rows", DATA.length.toLocaleString("en-IN")],
+    ["Columns", COLS.length],
+    ["Numeric columns", numCols.length + " \u2014 " + numCols.join(", ")],
+    ["Categorical columns", catCols.length + " \u2014 " + catCols.join(", ")],
+    ["Missing values", missing],
+    ["Duplicate rows", dupes],
+    ["Target", "Charging_Cost_INR"],
+    ["Problem type", "Regression \u2014 continuous rupee amount"],
+    ["Model", "Ridge regression, fitted in-browser"]
+  ].map(([k,v]) => "<dt>"+k+"</dt><dd>"+v+"</dd>").join("");
+
+  // computed findings
+  const byVeh = {};
+  [...new Set(DATA.map(r=>r.Vehicle_Type))].forEach(v => {
+    const s = DATA.filter(r=>r.Vehicle_Type===v);
+    byVeh[v] = {n:s.length, cost:avg(s,"Charging_Cost_INR"), kwh:avg(s,"Energy_Consumed_kWh")};
+  });
+  const vSorted = Object.entries(byVeh).sort((a,b)=>b[1].cost-a[1].cost);
+  const stRev = aggBy(DATA,"Charging_Station","Charging_Cost_INR");
+  const topSt = [...stRev.entries()].sort((a,b)=>b[1]-a[1])[0];
+  const peakRows = DATA.filter(r=>String(r.Peak_Hour)==="Yes");
+  const offRows = DATA.filter(r=>String(r.Peak_Hour)!=="Yes");
+  const purp = countBy(DATA,"Purpose");
+  const topPurp = [...purp.entries()].sort((a,b)=>b[1]-a[1])[0];
+  const pay = countBy(DATA,"Payment_Method");
+  const cash = pay.get("Cash") || 0;
+
+  $("#insights").innerHTML =
+    "<ul>" +
+    "<li><b>" + vSorted[0][0] + " sessions carry the revenue.</b> They average " +
+      inr(vSorted[0][1].cost) + " a session against " + inr(vSorted[vSorted.length-1][1].cost) +
+      " for " + vSorted[vSorted.length-1][0] + ", yet make up only " +
+      num(byVeh[vSorted[0][0]].n/DATA.length*100,0) + "% of all sessions. Capacity planning should follow rupees, not session counts.</li>" +
+    "<li><b>Demand is concentrated in the middle of the day, not the evening.</b> Only " +
+      num(peakRows.length/DATA.length*100,0) + "% of sessions fall in the 17:00\u201321:00 peak window, " +
+      "and their average bill (" + inr(avg(peakRows,"Charging_Cost_INR")) + ") is close to off-peak (" +
+      inr(avg(offRows,"Charging_Cost_INR")) + "). A peak surcharge would touch a small slice of volume.</li>" +
+    "<li><b>" + topSt[0] + " leads on revenue</b> at " + inr(topSt[1]) + " across the quarter, " +
+      num(topSt[1]/sum(DATA,"Charging_Cost_INR")*100,0) + "% of the network total.</li>" +
+    "<li><b>" + topPurp[0] + " is the dominant use case</b> at " + topPurp[1] + " sessions, " +
+      num(topPurp[1]/DATA.length*100,0) + "% of the book. Loyalty or subscription pricing has the widest reach there.</li>" +
+    "<li><b>Cash is still " + num(cash/DATA.length*100,0) + "% of sessions.</b> Each cash session needs attended collection, " +
+      "so shifting that share to UPI or wallet is an operating-cost lever independent of pricing.</li>" +
+    "<li><b>Session length alone does not determine the bill.</b> Duration and energy correlate only loosely " +
+      "because charging speed varies widely by vehicle, which is exactly why the model needs vehicle type " +
+      "interacted with duration.</li>" +
+    "</ul>";
+}
+
+/* --------------------------------------------------------------------
+   13. NAVIGATION + REFRESH
+   ------------------------------------------------------------------ */
+const TITLES = {
+  dashboard:["EV user and charging station analytics","Session volume, energy throughput and revenue across the charging network."],
+  prediction:["Charging cost prediction","Estimate the rupee value of a session before it starts, from vehicle, site, timing and length."],
+  model:["Model performance","Everything below is fitted and scored in your browser on a fixed 80/20 split."],
+  explorer:["Data explorer","Search, sort and page through the session records, or load your own file."],
+  about:["About this dashboard","Dataset profile, modelling choices and the limits of what this data can tell you."]
+};
+$("#nav").addEventListener("click", e => {
+  const b = e.target.closest("button[data-view]"); if (!b) return;
+  const v = b.dataset.view;
+  $("#nav").querySelectorAll("button").forEach(x => x.setAttribute("aria-selected", x === b ? "true" : "false"));
+  document.querySelectorAll(".view").forEach(s => s.classList.toggle("on", s.id === "view-"+v));
+  $("#page-title").textContent = TITLES[v][0];
+  $("#page-sub").textContent = TITLES[v][1];
+  $("#slicers").style.display = (v === "dashboard" || v === "explorer") ? "" : "none";
+  window.scrollTo({top:0, behavior:"smooth"});
+});
+
+function refresh(){
+  const rows = filtered();
+  $("#scope-n").textContent = rows.length.toLocaleString("en-IN");
+  $("#scope-total").textContent = DATA.length.toLocaleString("en-IN");
+  renderKPIs(rows);
+  renderCharts(rows);
+  page = 1;
+  renderTable();
+}
+
+function bootData(){
+  buildSlicers();
+  MODEL = trainModel(DATA);
+  buildPredictionForm();
+  renderModel();
+  renderAbout();
+  $("#foot-rows").textContent = DATA.length + " sessions";
+  refresh();
+  if (MODEL) runPrediction();
+}
+
+bootData();
+</script>
+</body>
+</html>
